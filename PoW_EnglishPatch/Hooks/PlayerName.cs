@@ -39,6 +39,39 @@ namespace EnglishPatch.Hooks
 
             player.SurName = surName + " ";
         }
+
+        /*
+         * Character names are copied into the save the first time a character is used. Saves made with an older translation
+         * keep the surname without its trailing space ("Ning" + "Chuchu" = "NingChuchu"), even though CharacterExterior.txt has "Ning ".
+         * We only add the missing space back when the saved surname is otherwise the same, names changed by the story stay as they are.
+         */
+        public static void RestoreNpcSurNameSpaces(GameData gameData)
+        {
+            if (gameData == null || gameData.Exterior == null)
+            {
+                return;
+            }
+
+            foreach (var entry in gameData.Exterior)
+            {
+                if (entry.Key == GameConfig.Player || entry.Value == null || string.IsNullOrEmpty(entry.Value.SurName))
+                {
+                    continue;
+                }
+
+                CharacterExterior current = Game.Data.Get<CharacterExterior>(entry.Key);
+                string currentSurName = current?.SurName;
+                if (string.IsNullOrEmpty(currentSurName) || !char.IsWhiteSpace(currentSurName[currentSurName.Length - 1]))
+                {
+                    continue;
+                }
+
+                if (entry.Value.SurName == currentSurName.TrimEnd())
+                {
+                    entry.Value.SurName = currentSurName;
+                }
+            }
+        }
     }
 
     //Loading a save (also fixes saves made before this patch)
@@ -48,6 +81,7 @@ namespace EnglishPatch.Hooks
         public static void Postfix(GameData __instance)
         {
             PlayerName.AddSpaceToSurName(__instance);
+            PlayerName.RestoreNpcSurNameSpaces(__instance);
         }
     }
 

@@ -2,6 +2,8 @@
 
 using HarmonyLib;
 
+using Heluo.Data;
+using Heluo.Manager;
 using Heluo.Platform;
 using Heluo.UI;
 
@@ -25,6 +27,28 @@ namespace EnglishPatch.Hooks
                 }
                 return _Arial;
             }
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex _SizeTag = new System.Text.RegularExpressions.Regex(@"<size=(\d+)>");
+
+        //Scales the <size=N> rich text tags of a text, so they shrink together with the font size
+        public static string ScaleSizeTags(string text, float scale)
+        {
+            return _SizeTag.Replace(text, m => "<size=" + Mathf.Max(1, Mathf.RoundToInt(int.Parse(m.Groups[1].Value) * scale)) + ">");
+        }
+
+        //Shrinks a text to fit its rect and lets it wrap at spaces
+        public static void FitToBox(Text text, int minSize)
+        {
+            text.text = text.text.Replace(' ', ' ');
+            if (!text.resizeTextForBestFit)
+            {
+                text.resizeTextMaxSize = text.fontSize;
+                text.resizeTextMinSize = minSize;
+                text.resizeTextForBestFit = true;
+            }
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            text.verticalOverflow = VerticalWrapMode.Truncate;
         }
 
         //Short texts stay on one line, longer ones wrap and may grow downwards
@@ -121,32 +145,69 @@ namespace EnglishPatch.Hooks
     [HarmonyPatch(typeof(WGBattleInfo), "UpdateInfo")]
     public class WGBattleInfo_UpdateInfo_Hook
     {
-        public static void Postfix(ref WGBattleInfo __instance, ref WGText ___Name)
+        public static void Postfix(Text ___Name)
         {
             //Debug.Log("WGBattleInfo_UpdateInfo_Hook");
-            Text text = ___Name.GetComponent<Text>();
-            text.font = TextUtil.Arial;
-            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            ___Name.font = TextUtil.Arial;
+            ___Name.horizontalOverflow = HorizontalWrapMode.Overflow;
         }
     }
 
+    /*
+     * WGPaoMaDengText is a marquee: text taller (or wider) than its box scrolls through after 2 seconds.
+     * For the vertical ones (skill effects, course descriptions) we shrink the font until the text fits the box,
+     * so it can be read at once. Text that does not even fit at the minimum size still scrolls like before.
+     */
     [HarmonyPatch(typeof(WGPaoMaDengText), "AddMessage")]
     public class WGPaoMaDengText_AddMessage_Hook
     {
-        public static void Postfix(ref WGPaoMaDengText __instance, ref WGText ___pmdText)
+        private const int MinFontSize = 16;
+
+        //Font size the prefab gave each marquee text, before we started shrinking it
+        private static readonly System.Collections.Generic.Dictionary<Text, int> _OriginalFontSize = new System.Collections.Generic.Dictionary<Text, int>();
+
+        public static void Prefix(WGPaoMaDengText __instance, ref string msg, Text ___pmdText, Image ___mask)
         {
-            //Debug.Log("WGPaoMaDengText_AddMessage_Hook");
-            ___pmdText.GetComponent<Text>().font = TextUtil.Arial;
+            //The original measures the text right after setting it, so the font has to be Arial before that
+            ___pmdText.font = TextUtil.Arial;
+
+            if (msg == null || __instance.direction != WGPaoMaDengText.Direction.Vertical || ___mask == null)
+            {
+                return;
+            }
+
+            //StringTool.Replace turned the spaces into non-breaking spaces, which made English break in the middle of words
+            msg = msg.Replace(' ', ' ');
+
+            if (!_OriginalFontSize.TryGetValue(___pmdText, out int originalSize))
+            {
+                originalSize = ___pmdText.fontSize;
+                _OriginalFontSize[___pmdText] = originalSize;
+            }
+
+            float maxHeight = ___mask.rectTransform.rect.height;
+            int size = originalSize;
+            string fitted = msg;
+            ___pmdText.fontSize = size;
+            ___pmdText.text = fitted;
+            while (___pmdText.preferredHeight > maxHeight && size > MinFontSize)
+            {
+                size--;
+                fitted = TextUtil.ScaleSizeTags(msg, (float)size / originalSize);
+                ___pmdText.fontSize = size;
+                ___pmdText.text = fitted;
+            }
+            msg = fitted;
         }
     }
 
     [HarmonyPatch(typeof(WGNurturanceBtn), "UpdateButton")]
     public class WGNurturanceBtn_UpdateButton_Hook
     {
-        public static void Postfix(ref WGNurturanceBtn __instance, ref WGText ___Btn_Name)
+        public static void Postfix(WGNurturanceBtn __instance)
         {
             //Debug.Log("WGNurturanceBtn_UpdateButton_Hook");
-            Text text = __instance.Btn_Name.GetComponent<Text>();
+            Text text = __instance.Btn_Name;
             text.font = TextUtil.Arial;
             text.horizontalOverflow = HorizontalWrapMode.Wrap;
             text.verticalOverflow = VerticalWrapMode.Overflow;
@@ -327,6 +388,94 @@ namespace EnglishPatch.Hooks
                 {
                     RectTransform rt = t as RectTransform;
                     rt.ForceUpdateRectTransforms();
+                }
+            }
+        }
+    }
+
+    //Quest rewards are built in code as "{name}  {count}個", 個 being the Chinese counter for items
+    [HarmonyPatch(typeof(CtrlCommission), "get_reward")]
+    public class CtrlCommission_GetReward_Hook
+    {
+        public static void Postfix(ref string __result)
+        {
+            if (__result == null || !__result.EndsWith("個"))
+            {
+                return;
+            }
+
+            string withoutCounter = __result.Substring(0, __result.Length - 1);
+            string count = System.Text.RegularExpressions.Regex.Match(withoutCounter, @"\d+$").Value;
+            __result = withoutCounter + (count == "1" ? " pc" : " pcs");
+        }
+    }
+
+    /*
+     * Reaching the intermediate level in one of the Four Arts adds the Intermediate (and later Expert) training of all four arts to the menu,
+     * greyed out until their own art is high enough. We hide those tiers until the player qualifies for them.
+     */
+    [HarmonyPatch(typeof(NurturanceOrderTree), "CheckShow")]
+    public class NurturanceOrderTree_CheckShow_Hook
+    {
+        //Intermediate (x2) and Expert (x3) tiers of Zither, Go, Calligraphy and Painting
+        private static readonly System.Text.RegularExpressions.Regex _ArtTier = new System.Text.RegularExpressions.Regex(@"^Nurturance_04_[1-4][23]$");
+
+        public static void Postfix(NurturanceOrderTree __instance, ref bool __result)
+        {
+            Nurturance nurturance = __instance.Value;
+            if (!__result || nurturance == null || nurturance.OpenCondition == null || !_ArtTier.IsMatch(nurturance.Id))
+            {
+                return;
+            }
+
+            __result = nurturance.OpenCondition.GetValue<bool>();
+        }
+    }
+
+    //The NPC speech bubble on the reading screen: wrap at spaces and shrink the quote until it fits the bubble
+    [HarmonyPatch(typeof(WGNpcTalk), "UpdateWidget")]
+    public class WGNpcTalk_UpdateWidget_Hook
+    {
+        private static readonly AccessTools.FieldRef<WGText, Text> _WGTextText = AccessTools.FieldRefAccess<WGText, Text>("text");
+
+        public static void Postfix(WGText ___npcTalk)
+        {
+            if (___npcTalk == null)
+            {
+                return;
+            }
+
+            Text text = _WGTextText(___npcTalk);
+            if (text != null)
+            {
+                TextUtil.FitToBox(text, 12);
+            }
+        }
+    }
+
+    //The 新 ("new") badges on the inventory tabs, if they are a text, get the English "New" from StringTable (General_New)
+    [HarmonyPatch(typeof(UIInventory), "UpdateTabNotice")]
+    public class UIInventory_UpdateTabNotice_Hook
+    {
+        public static void Postfix(System.Collections.Generic.List<GameObject> ___TabNotices, int index, bool isOn)
+        {
+            if (!isOn || ___TabNotices == null || index < 0 || index >= ___TabNotices.Count || ___TabNotices[index] == null)
+            {
+                return;
+            }
+
+            foreach (Text text in ___TabNotices[index].GetComponentsInChildren<Text>(true))
+            {
+                if (text.text.Trim() == "新")
+                {
+                    text.text = Heluo.Game.Data.Get<StringTable>("General_New")?.Text ?? "New";
+                    text.font = TextUtil.Arial;
+                    //Best fit only shrinks text that wraps and truncates
+                    text.horizontalOverflow = HorizontalWrapMode.Wrap;
+                    text.verticalOverflow = VerticalWrapMode.Truncate;
+                    text.resizeTextMinSize = 8;
+                    text.resizeTextMaxSize = text.fontSize;
+                    text.resizeTextForBestFit = true;
                 }
             }
         }
