@@ -29,6 +29,36 @@ namespace EnglishPatch.Hooks
             }
         }
 
+        private static readonly AccessTools.FieldRef<WGText, Text> _WGTextText = AccessTools.FieldRefAccess<WGText, Text>("text");
+
+        //The Text a WGText shows
+        public static Text TextOf(WGText wgText)
+        {
+            return wgText == null ? null : _WGTextText(wgText);
+        }
+
+        //Horizontal world position of the drawn text (not of its rect), using its one line width and alignment
+        public static void VisibleX(Text text, out float left, out float right)
+        {
+            Rect rect = text.rectTransform.rect;
+            float width = text.preferredWidth;
+            float xMin;
+            switch ((int)text.alignment % 3)
+            {
+                case 0: xMin = rect.xMin; break;
+                case 1: xMin = rect.center.x - width / 2f; break;
+                default: xMin = rect.xMax - width; break;
+            }
+            left = text.rectTransform.TransformPoint(new Vector3(xMin, 0f, 0f)).x;
+            right = text.rectTransform.TransformPoint(new Vector3(xMin + width, 0f, 0f)).x;
+        }
+
+        //A width in the local units of a rect, converted to world units
+        public static float WorldWidth(RectTransform rect, float localWidth)
+        {
+            return rect.TransformVector(new Vector3(localWidth, 0f, 0f)).x;
+        }
+
         private static readonly System.Text.RegularExpressions.Regex _SizeTag = new System.Text.RegularExpressions.Regex(@"<size=(\d+)>");
 
         //Scales the <size=N> rich text tags of a text, so they shrink together with the font size
@@ -217,15 +247,94 @@ namespace EnglishPatch.Hooks
         }
     }
 
-    //The course description on the elective screen shrinks to fit
+    //The course description on the elective screen shrinks to fit, and the learnable skill rows get room for their English names
     [HarmonyPatch(typeof(WGCourseIntroduction), "UpdateWidget")]
     public class WGCourseIntroduction_UpdateWidget_Hook
     {
+        private const float Gap = 8f;
+        private const int MinNameSize = 12;
+
+        //Where each "Qi Usage" label sits in the prefab, so we always move it from there
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector3> _LabelOrigin = new System.Collections.Generic.Dictionary<RectTransform, Vector3>();
+
         public static void Prefix(WGPaoMaDengText ___description)
         {
             if (___description != null)
             {
                 WGPaoMaDengText_AddMessage_Hook.FitToBox.Add(___description);
+            }
+        }
+
+        //Each skill row is: skill name, "Qi Usage" label, Qi number. Long English names ran into the label.
+        //We move the label right up to the number, then shrink the name if it still does not end before the label.
+        public static void Postfix(GameObject[] ___skillGo, WGText[] ___skills, WGText[] ___mps)
+        {
+            if (___skillGo == null || ___skills == null || ___mps == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < ___skillGo.Length && i < ___skills.Length && i < ___mps.Length; i++)
+            {
+                if (___skillGo[i] == null || !___skillGo[i].activeSelf)
+                {
+                    continue;
+                }
+
+                Text name = TextUtil.TextOf(___skills[i]);
+                Text mp = TextUtil.TextOf(___mps[i]);
+                if (name == null || mp == null)
+                {
+                    continue;
+                }
+
+                Text label = null;
+                foreach (Text t in ___skillGo[i].GetComponentsInChildren<Text>(true))
+                {
+                    if (t != name && t != mp && !string.IsNullOrEmpty(t.text))
+                    {
+                        label = t;
+                        break;
+                    }
+                }
+
+                FitRow(name, label, mp);
+            }
+        }
+
+        private static void FitRow(Text name, Text label, Text mp)
+        {
+            TextUtil.VisibleX(mp, out float mpLeft, out _);
+            float rightLimit = mpLeft;
+
+            if (label != null)
+            {
+                RectTransform labelRect = label.rectTransform;
+                if (!_LabelOrigin.TryGetValue(labelRect, out Vector3 origin))
+                {
+                    origin = labelRect.position;
+                    _LabelOrigin[labelRect] = origin;
+                }
+                labelRect.position = origin;
+
+                TextUtil.VisibleX(label, out float labelLeft, out float labelRight);
+                float shift = mpLeft - TextUtil.WorldWidth(labelRect, Gap) - labelRight;
+                if (shift > 0)
+                {
+                    labelRect.position = origin + new Vector3(shift, 0f, 0f);
+                    labelLeft += shift;
+                }
+                rightLimit = labelLeft;
+            }
+
+            //One line, shrunk until it ends a gap before the label (or the number)
+            name.horizontalOverflow = HorizontalWrapMode.Overflow;
+            TextUtil.VisibleX(name, out float nameLeft, out float nameRight);
+            float available = rightLimit - TextUtil.WorldWidth(name.rectTransform, Gap) - nameLeft;
+            float width = nameRight - nameLeft;
+            if (available > 0 && width > available)
+            {
+                name.fontSize = Mathf.Max(MinNameSize, Mathf.FloorToInt(name.fontSize * available / width));
             }
         }
     }
@@ -465,16 +574,9 @@ namespace EnglishPatch.Hooks
     [HarmonyPatch(typeof(WGNpcTalk), "UpdateWidget")]
     public class WGNpcTalk_UpdateWidget_Hook
     {
-        private static readonly AccessTools.FieldRef<WGText, Text> _WGTextText = AccessTools.FieldRefAccess<WGText, Text>("text");
-
         public static void Postfix(WGText ___npcTalk)
         {
-            if (___npcTalk == null)
-            {
-                return;
-            }
-
-            Text text = _WGTextText(___npcTalk);
+            Text text = TextUtil.TextOf(___npcTalk);
             if (text != null)
             {
                 TextUtil.FitToBox(text, 12);
