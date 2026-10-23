@@ -624,7 +624,7 @@ namespace EnglishPatch.Hooks
         //The "Info" and "Effect" titles are 25 in the prefab
         private const int MedicineTitleSize = 20;
         //What the Effect box gives up for Info on the Medicine tab: it keeps room for three lines of size 20
-        private const float MedicineEffectShrink = 38f;
+        private const float MedicineEffectShrink = 30f;
         //Four more lines of size 20 than the two the box was made for
         private const float ItemsExtraHeight = 92f;
 
@@ -697,7 +697,7 @@ namespace EnglishPatch.Hooks
                 return;
             }
 
-            text.alignment = (TextAnchor)((int)text.alignment % 3);
+            TopAlign(text);
             text.horizontalOverflow = HorizontalWrapMode.Wrap;
             float missing = text.preferredHeight - text.rectTransform.rect.height;
             float wanted = Mathf.Max(missing, minGrow);
@@ -741,13 +741,32 @@ namespace EnglishPatch.Hooks
 
             foreach (Text t in new[] { text, below })
             {
-                t.alignment = (TextAnchor)((int)t.alignment % 3);
+                TopAlign(t);
                 t.horizontalOverflow = HorizontalWrapMode.Wrap;
                 if (t.preferredHeight > t.rectTransform.rect.height)
                 {
                     TextUtil.ShrinkToHeight(t, minSize);
                 }
             }
+        }
+
+        //Gap between the top of the box and the first line, the prefab leaves 9, which looked cramped
+        private const float TopPadding = 8f;
+
+        //Top edge each text area has in the prefab
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, float> _OriginalTop = new System.Collections.Generic.Dictionary<RectTransform, float>();
+
+        //The text starts at the top of its box, a small gap below the edge
+        private static void TopAlign(Text text)
+        {
+            text.alignment = (TextAnchor)((int)text.alignment % 3);
+            RectTransform rect = text.rectTransform;
+            if (!_OriginalTop.TryGetValue(rect, out float top))
+            {
+                top = rect.offsetMax.y;
+                _OriginalTop[rect] = top;
+            }
+            rect.offsetMax = new Vector2(rect.offsetMax.x, top - TopPadding);
         }
 
         private static void Restore(RectTransform box)
