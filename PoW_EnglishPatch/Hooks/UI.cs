@@ -1,4 +1,5 @@
 ﻿using System.Reflection;
+using System.Text;
 
 using HarmonyLib;
 
@@ -130,6 +131,143 @@ namespace EnglishPatch.Hooks
                 widest = Mathf.Max(widest, text.cachedTextGeneratorForLayout.GetPreferredWidth(word, settings) / text.pixelsPerUnit);
             }
             return widest;
+        }
+
+        /*
+         * Unity's Text has no justified alignment, so we do it ourselves: we let Unity break the lines at the rect width,
+         * then widen the spaces of every line until it reaches the right edge. Extra space finer than one space is a space
+         * with a smaller <size>, smaller sizes do not make the line taller. The last line of a paragraph stays left aligned.
+         * The lines are joined with line breaks and the text no longer wraps by itself, so Unity keeps our lines as they are.
+         * Texts with rich text tags or not aligned to the left are left alone.
+         */
+        public static string Justified(Text text, string content)
+        {
+            if (text == null || text.font == null || string.IsNullOrEmpty(content) || content.IndexOf('<') >= 0 || (int)text.alignment % 3 != 0)
+            {
+                return content;
+            }
+
+            float width = text.rectTransform.rect.width;
+            if (width <= 0f)
+            {
+                return content;
+            }
+
+            content = content.Replace('\u00A0', ' ');
+            TextGenerationSettings wrapped = text.GetGenerationSettings(new Vector2(width, 100000f));
+            wrapped.horizontalOverflow = HorizontalWrapMode.Wrap;
+            wrapped.verticalOverflow = VerticalWrapMode.Overflow;
+            wrapped.resizeTextForBestFit = false;
+            wrapped.richText = true;
+            TextGenerationSettings oneLine = wrapped;
+            oneLine.horizontalOverflow = HorizontalWrapMode.Overflow;
+
+            TextGenerator generator = new TextGenerator();
+            generator.Populate(content, wrapped);
+            System.Collections.Generic.IList<UILineInfo> lines = generator.lines;
+
+            float scale = text.pixelsPerUnit;
+            float pair = generator.GetPreferredWidth("xx", oneLine);
+            float spaceWidth = (generator.GetPreferredWidth("x x", oneLine) - pair) / scale;
+            if (spaceWidth <= 0f)
+            {
+                return content;
+            }
+
+            //Glyph widths are rounded to whole pixels, so the width of a space at every smaller size is measured instead of assumed
+            float[] smallSpace = new float[text.fontSize];
+            for (int size = 1; size < text.fontSize; size++)
+            {
+                smallSpace[size] = (generator.GetPreferredWidth("x<size=" + size + "> </size>x", oneLine) - pair) / scale;
+            }
+
+            var result = new StringBuilder();
+            for (int i = 0; i < lines.Count; i++)
+            {
+                int start = lines[i].startCharIdx;
+                int end = i + 1 < lines.Count ? lines[i + 1].startCharIdx : content.Length;
+                if (start >= content.Length)
+                {
+                    break;
+                }
+                string line = content.Substring(start, Mathf.Max(0, end - start));
+                bool paragraphEnd = i + 1 >= lines.Count || line.EndsWith("\n");
+                line = line.Trim(' ', '\n', '\r');
+
+                if (i > 0)
+                {
+                    result.Append('\n');
+                }
+
+                int gaps = 0;
+                foreach (char c in line)
+                {
+                    if (c == ' ')
+                    {
+                        gaps++;
+                    }
+                }
+
+                float extra = width - generator.GetPreferredWidth(line, oneLine) / scale - 0.5f;
+                if (paragraphEnd || gaps == 0 || extra <= 0f)
+                {
+                    result.Append(line);
+                    continue;
+                }
+
+                //Spreading the extra width over the spaces, keeping track of the rounding so the line still ends at the edge
+                float perGap = extra / gaps;
+                float added = 0f;
+                int gap = 0;
+                foreach (char c in line)
+                {
+                    result.Append(c);
+                    if (c != ' ')
+                    {
+                        continue;
+                    }
+
+                    gap++;
+                    float missing = perGap * gap - added;
+                    int spaces = Mathf.FloorToInt(missing / spaceWidth);
+                    result.Append(' ', spaces);
+                    added += spaces * spaceWidth;
+
+                    //The rest is one smaller space, the size whose width comes closest
+                    float rest = missing - spaces * spaceWidth;
+                    int best = 0;
+                    for (int size = 1; size < smallSpace.Length; size++)
+                    {
+                        if (Mathf.Abs(smallSpace[size] - rest) < Mathf.Abs(smallSpace[best] - rest))
+                        {
+                            best = size;
+                        }
+                    }
+                    if (best > 0)
+                    {
+                        result.Append("<size=").Append(best).Append("> </size>");
+                        added += smallSpace[best];
+                    }
+                }
+            }
+            return result.ToString();
+        }
+
+        //Justifies a text in place, see Justified
+        public static void Justify(Text text)
+        {
+            if (text == null || text.font == null)
+            {
+                return;
+            }
+
+            string justified = Justified(text, text.text);
+            if (justified != text.text)
+            {
+                text.supportRichText = true;
+                text.horizontalOverflow = HorizontalWrapMode.Overflow;
+                text.text = justified;
+            }
         }
 
         //Shrinks a wrapping text until it is not taller than its rect, never below minSize. It is not truncated, so a very long text may still overflow a little.
@@ -320,6 +458,9 @@ namespace EnglishPatch.Hooks
         //Marquees that shrink to fit, registered by the widgets owning them (see below)
         public static readonly System.Collections.Generic.HashSet<WGPaoMaDengText> FitToBox = new System.Collections.Generic.HashSet<WGPaoMaDengText>();
 
+        //Marquees whose text is also justified
+        public static readonly System.Collections.Generic.HashSet<WGPaoMaDengText> Justify = new System.Collections.Generic.HashSet<WGPaoMaDengText>();
+
         //Font size the prefab gave each marquee text, before we started shrinking it
         private static readonly System.Collections.Generic.Dictionary<Text, int> _OriginalFontSize = new System.Collections.Generic.Dictionary<Text, int>();
 
@@ -342,6 +483,8 @@ namespace EnglishPatch.Hooks
                 _OriginalFontSize[___pmdText] = originalSize;
             }
 
+            //A justified text was set to not wrap, measuring has to wrap again
+            ___pmdText.horizontalOverflow = HorizontalWrapMode.Wrap;
             float maxHeight = ___mask.rectTransform.rect.height;
             int size = originalSize;
             string fitted = msg;
@@ -355,11 +498,22 @@ namespace EnglishPatch.Hooks
                 ___pmdText.text = fitted;
             }
             msg = fitted;
+
+            if (Justify.Contains(__instance))
+            {
+                string justified = TextUtil.Justified(___pmdText, msg);
+                if (justified != msg)
+                {
+                    ___pmdText.supportRichText = true;
+                    ___pmdText.horizontalOverflow = HorizontalWrapMode.Overflow;
+                    msg = justified;
+                }
+            }
         }
     }
 
     //Gear tab of the character screen: the item Info and Effect texts shrink (down to 14) to fit their boxes.
-    //WGPropsIntroduction is also used by the shop, forge, elixirs and battle status, those stay as they are.
+    //WGPropsIntroduction is also used by the shop, forge, elixirs and battle status, those keep their size.
     [HarmonyPatch(typeof(WGPropsIntroduction), "UpdateWidget")]
     public class WGPropsIntroduction_UpdateWidget_Hook
     {
@@ -367,13 +521,14 @@ namespace EnglishPatch.Hooks
 
         public static void Postfix(WGPropsIntroduction __instance, WGText ___description, WGText ___effectDescription)
         {
-            if (!TextUtil.HasParent<UIEquip>(__instance))
+            if (TextUtil.HasParent<UIEquip>(__instance))
             {
-                return;
+                TextUtil.ShrinkToHeight(TextUtil.TextOf(___description), MinSize);
+                TextUtil.ShrinkToHeight(TextUtil.TextOf(___effectDescription), MinSize);
             }
 
-            TextUtil.ShrinkToHeight(TextUtil.TextOf(___description), MinSize);
-            TextUtil.ShrinkToHeight(TextUtil.TextOf(___effectDescription), MinSize);
+            //The item Info is justified everywhere
+            TextUtil.Justify(TextUtil.TextOf(___description));
         }
     }
 
@@ -387,6 +542,22 @@ namespace EnglishPatch.Hooks
             {
                 WGPaoMaDengText_AddMessage_Hook.FitToBox.Add(___effectDescription);
             }
+        }
+
+        //The book description under the title is justified
+        public static void Postfix(WGText ___description)
+        {
+            TextUtil.Justify(TextUtil.TextOf(___description));
+        }
+    }
+
+    //The inner art book description is justified like the martial arts one
+    [HarmonyPatch(typeof(WGMantraIntroduction), "UpdateWidget")]
+    public class WGMantraIntroduction_UpdateWidget_Hook
+    {
+        public static void Postfix(WGText ___description)
+        {
+            TextUtil.Justify(TextUtil.TextOf(___description));
         }
     }
 
@@ -407,6 +578,7 @@ namespace EnglishPatch.Hooks
             if (___description != null)
             {
                 WGPaoMaDengText_AddMessage_Hook.FitToBox.Add(___description);
+                WGPaoMaDengText_AddMessage_Hook.Justify.Add(___description);
             }
         }
 
@@ -599,15 +771,9 @@ namespace EnglishPatch.Hooks
             //The game turns every space into a non-breaking space (StringTool.Replace), so English lines broke in the middle of words. Turning them back allows wrapping at spaces.
             ___community_introduction.text = ___community_introduction.text.Replace(' ', ' ');
 
-            //Longer bios got cut off at the bottom of the Info box, so we let the text shrink until it fits.
-            if (!___community_introduction.resizeTextForBestFit)
-            {
-                ___community_introduction.resizeTextMaxSize = ___community_introduction.fontSize;
-                ___community_introduction.resizeTextMinSize = 12;
-                ___community_introduction.resizeTextForBestFit = true;
-            }
-            ___community_introduction.horizontalOverflow = HorizontalWrapMode.Wrap;
-            ___community_introduction.verticalOverflow = VerticalWrapMode.Truncate;
+            //Longer bios got cut off at the bottom of the Info box, so we let the text shrink until it fits, then justify it.
+            TextUtil.ShrinkToBox(___community_introduction, 12);
+            TextUtil.Justify(___community_introduction);
         }
     }
 
