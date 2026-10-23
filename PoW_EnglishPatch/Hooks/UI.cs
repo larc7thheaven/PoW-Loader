@@ -53,6 +53,36 @@ namespace EnglishPatch.Hooks
             right = text.rectTransform.TransformPoint(new Vector3(xMin + width, 0f, 0f)).x;
         }
 
+        //Shrinks a wrapping text until it is not taller than its rect, never below minSize. It is not truncated, so a very long text may still overflow a little.
+        public static void ShrinkToHeight(Text text, int minSize)
+        {
+            if (text == null || string.IsNullOrEmpty(text.text))
+            {
+                return;
+            }
+
+            text.text = text.text.Replace(' ', ' ');
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            float height = text.rectTransform.rect.height;
+            while (text.preferredHeight > height && text.fontSize > minSize)
+            {
+                text.fontSize--;
+            }
+        }
+
+        //Whether the object or one of its parents has the component, also when they are inactive
+        public static bool HasParent<T>(Component component) where T : Component
+        {
+            for (Transform t = component.transform; t != null; t = t.parent)
+            {
+                if (t.GetComponent<T>() != null)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         //A width in the local units of a rect, converted to world units
         public static float WorldWidth(RectTransform rect, float localWidth)
         {
@@ -231,6 +261,25 @@ namespace EnglishPatch.Hooks
                 ___pmdText.text = fitted;
             }
             msg = fitted;
+        }
+    }
+
+    //Gear tab of the character screen: the item Info and Effect texts shrink (down to 14) to fit their boxes.
+    //WGPropsIntroduction is also used by the shop, forge, elixirs and battle status, those stay as they are.
+    [HarmonyPatch(typeof(WGPropsIntroduction), "UpdateWidget")]
+    public class WGPropsIntroduction_UpdateWidget_Hook
+    {
+        private const int MinSize = 14;
+
+        public static void Postfix(WGPropsIntroduction __instance, WGText ___description, WGText ___effectDescription)
+        {
+            if (!TextUtil.HasParent<UIEquip>(__instance))
+            {
+                return;
+            }
+
+            TextUtil.ShrinkToHeight(TextUtil.TextOf(___description), MinSize);
+            TextUtil.ShrinkToHeight(TextUtil.TextOf(___effectDescription), MinSize);
         }
     }
 
