@@ -53,6 +53,33 @@ namespace EnglishPatch.Hooks
             right = text.rectTransform.TransformPoint(new Vector3(xMin + width, 0f, 0f)).x;
         }
 
+        //Font size each text had before ShrinkToWidth changed it, texts are reused for different strings
+        private static readonly System.Collections.Generic.Dictionary<Text, int> _OriginalWidthFitSize = new System.Collections.Generic.Dictionary<Text, int>();
+
+        //Keeps a text on one line and shrinks it (never below minSize) until it is not wider than its rect
+        public static void ShrinkToWidth(Text text, int minSize)
+        {
+            if (text == null)
+            {
+                return;
+            }
+
+            if (!_OriginalWidthFitSize.TryGetValue(text, out int originalSize))
+            {
+                originalSize = text.fontSize;
+                _OriginalWidthFitSize[text] = originalSize;
+            }
+            text.fontSize = originalSize;
+            text.resizeTextForBestFit = false;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+
+            float width = text.rectTransform.rect.width;
+            while (text.preferredWidth > width && text.fontSize > minSize)
+            {
+                text.fontSize--;
+            }
+        }
+
         //Shrinks a wrapping text until it is not taller than its rect, never below minSize. It is not truncated, so a very long text may still overflow a little.
         public static void ShrinkToHeight(Text text, int minSize)
         {
@@ -169,7 +196,12 @@ namespace EnglishPatch.Hooks
     public class WGStringTable_UpdateString_Hook
     {
         //Title labels whose English text is wider than the brush stroke behind them, shrunk to the width of their box
-        private static readonly System.Collections.Generic.HashSet<string> _FitWidth = new System.Collections.Generic.HashSet<string> { "Medicine_Browse" };
+        private static readonly System.Collections.Generic.HashSet<string> _FitWidth = new System.Collections.Generic.HashSet<string>
+        {
+            "Medicine_Browse",
+            //Relationship screen: Friendship bar label, Send Gifts and Outings buttons
+            "General_Favorability", "SecondaryInterface0808", "SecondaryInterface0803", "SecondaryInterface0804",
+        };
         private const int MinTitleSize = 14;
 
         public static void Postfix(WGStringTable __instance, string ___id)
@@ -181,11 +213,7 @@ namespace EnglishPatch.Hooks
 
             if (_FitWidth.Contains(___id))
             {
-                float width = text.rectTransform.rect.width;
-                while (text.preferredWidth > width && text.fontSize > MinTitleSize)
-                {
-                    text.fontSize--;
-                }
+                TextUtil.ShrinkToWidth(text, MinTitleSize);
             }
         }
     }
@@ -491,6 +519,9 @@ namespace EnglishPatch.Hooks
             ___community_name.font = TextUtil.Arial;
             ___community_introduction.font = TextUtil.Arial;
 
+            //The name box is sized for 2-4 Chinese characters, "Nan Feihuang" wrapped at the space and only "Nan" was left. We keep it on one line and shrink it to fit.
+            TextUtil.ShrinkToWidth(___community_name, 16);
+
             //The game turns every space into a non-breaking space (StringTool.Replace), so English lines broke in the middle of words. Turning them back allows wrapping at spaces.
             ___community_introduction.text = ___community_introduction.text.Replace(' ', ' ');
 
@@ -503,6 +534,21 @@ namespace EnglishPatch.Hooks
             }
             ___community_introduction.horizontalOverflow = HorizontalWrapMode.Wrap;
             ___community_introduction.verticalOverflow = VerticalWrapMode.Truncate;
+        }
+    }
+
+    //Hobby labels on the relationship screen (Calligraphy, Alcohol...), the pills are sized for 2 Chinese characters
+    [HarmonyPatch(typeof(WGFavItem), "SetFavItem")]
+    public class WGFavItem_SetFavItem_Hook
+    {
+        public static void Postfix(Text ___item_name)
+        {
+            if (___item_name == null || !___item_name.gameObject.activeSelf || string.IsNullOrEmpty(___item_name.text))
+            {
+                return;
+            }
+
+            TextUtil.ShrinkToWidth(___item_name, 12);
         }
     }
 
