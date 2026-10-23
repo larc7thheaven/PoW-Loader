@@ -240,6 +240,8 @@ namespace EnglishPatch.Hooks
             //Debug.Log("UIQuest_SetTrackedQuest_Hook");
             ___questName.GetComponent<Text>().fontSize = 18;
             ___description.GetComponent<Text>().fontSize = 16;
+            //Longer quest texts still ran out of the box at 16, those shrink until they fit
+            TextUtil.ShrinkToHeight(___description.GetComponent<Text>(), 12);
         }
     }
 
@@ -553,60 +555,96 @@ namespace EnglishPatch.Hooks
     }
 
     /*
-     * Updating Date to display Year and Month in English
-     * Updating the Units in SetMonth and adding a . after the number in both SetYear and SetMonth
+     * Showing the date the English way, "Year 1 Month 3" instead of "1. Year 3. Month".
+     * The date box has separate texts for the unit (Chinese only), year, year unit, month and month unit.
+     * SetYear and SetMonth are called on their own, so both lay out the whole line again.
     */
+    public static class DateLayout
+    {
+        //Center of the line inside the date box and the gaps between label and number and between year and month
+        private const float CenterX = 20f;
+        private const float PosY = 41.5f;
+        private const float LabelGap = 8f;
+        private const float GroupGap = 16f;
+
+        public static void Layout(UIDate ui)
+        {
+            //Child 0 of the UIDate is the UI_Date, its child 0 is the Date_BG holding Unit (0), Year (1), YearUnit (2), Month (3) and MonthUnit (4)
+            Transform dateBG = ui.transform.GetChild(0).GetChild(0);
+            Text unit = dateBG.GetChild(0).GetComponent<Text>();
+            Text year = dateBG.GetChild(1).GetComponent<Text>();
+            Text yearUnit = dateBG.GetChild(2).GetComponent<Text>();
+            Text month = dateBG.GetChild(3).GetComponent<Text>();
+            Text monthUnit = dateBG.GetChild(4).GetComponent<Text>();
+
+            unit.text = "";
+            unit.gameObject.SetActive(false);
+            yearUnit.text = "Year";
+            yearUnit.fontSize = 28;
+            monthUnit.text = "Month";
+            monthUnit.fontSize = 28;
+
+            Text[] order = { yearUnit, year, monthUnit, month };
+            float[] gaps = { LabelGap, GroupGap, LabelGap, 0f };
+            float total = 0f;
+            foreach (Text t in order)
+            {
+                //Left aligned on one line, keeping the vertical alignment, so each text starts where we put it
+                t.horizontalOverflow = HorizontalWrapMode.Overflow;
+                t.alignment = (TextAnchor)((int)t.alignment / 3 * 3);
+                t.rectTransform.pivot = new Vector2(0f, t.rectTransform.pivot.y);
+            }
+            for (int i = 0; i < order.Length; i++)
+            {
+                total += order[i].preferredWidth + gaps[i];
+            }
+
+            float x = CenterX - total / 2f;
+            for (int i = 0; i < order.Length; i++)
+            {
+                RectTransform rt = order[i].rectTransform;
+                float width = order[i].preferredWidth;
+                rt.sizeDelta = new Vector2(width, rt.sizeDelta.y);
+                rt.localPosition = new Vector3(x, PosY, 0f);
+                x += width + gaps[i];
+            }
+        }
+    }
 
     [HarmonyPatch(typeof(UIDate), "SetYear")]
     public class UIDate_SetYear_Hook
     {
-        public static void Prefix(ref string yearStr)
+        public static void Postfix(UIDate __instance)
         {
             //Debug.Log("UIDate_SetYear_Hook");
-            yearStr += ".";
+            DateLayout.Layout(__instance);
         }
     }
 
     [HarmonyPatch(typeof(UIDate), "SetMonth")]
     public class UIDate_SetMonth_Hook
     {
-        public static void Prefix(ref UIDate __instance, ref string monthStr)
+        public static void Postfix(UIDate __instance)
         {
             //Debug.Log("UIDate_SetMonth_Hook");
-            monthStr += ".";
+            DateLayout.Layout(__instance);
+        }
+    }
 
-            //Getting child 0, which is the RectTransform
-            RectTransform UI_Date_rectTransform = __instance.gameObject.transform.GetChild(0) as RectTransform;
-
-            //Getting the Date_BG which is the first child again (Index 0)
-            RectTransform dateBG_rectTransform = UI_Date_rectTransform.gameObject.transform.GetChild(0) as RectTransform;
-
-            //Here now we can get the Unit(child 0),Year (child 1), YearUnit(child 2) Month(child 3) and monthUnit(child 4)
-            RectTransform unit = dateBG_rectTransform.gameObject.transform.GetChild(0) as RectTransform;
-            RectTransform year = dateBG_rectTransform.gameObject.transform.GetChild(1) as RectTransform;
-            RectTransform yearUnit = dateBG_rectTransform.gameObject.transform.GetChild(2) as RectTransform;
-            RectTransform month = dateBG_rectTransform.gameObject.transform.GetChild(3) as RectTransform;
-            RectTransform monthUnit = dateBG_rectTransform.gameObject.transform.GetChild(4) as RectTransform;
-
-            //Disabling "Unit" since we do not need it in English
-            unit.localPosition = new Vector3(0, 0, 0);
-            unit.gameObject.SetActive(false);
-            //Moving the Unit/Year/YearUnit/Month/monthUnit to hardcoded positions that look good
-            year.localPosition = new Vector3(-60f, 41.5f, 0f);
-            yearUnit.localPosition = new Vector3(-20f, 41.5f, 0);
-            yearUnit.sizeDelta = new Vector2(70f, 50f);
-            month.localPosition = new Vector3(35f, 41.5f, 0f);
-            monthUnit.localPosition = new Vector3(86f, 41.5f, 0);
-            monthUnit.sizeDelta = new Vector2(70f, 50f);
-
-            //Lastly we overwrite the text they contain
-            unit.gameObject.GetComponent<UnityEngine.UI.Text>().text = "";
-            UnityEngine.UI.Text YearUnitText = yearUnit.gameObject.GetComponent<UnityEngine.UI.Text>();
-            YearUnitText.text = "Year";
-            YearUnitText.fontSize = 28;
-            UnityEngine.UI.Text monthUnitText = monthUnit.gameObject.GetComponent<UnityEngine.UI.Text>();
-            monthUnitText.text = "Month";
-            monthUnitText.fontSize = 28;
+    //The "精神" (Energy) label above the energy bar is written in the prefab, nothing translates it
+    [HarmonyPatch(typeof(UINurturance), "UpdateValue")]
+    public class UINurturance_UpdateValue_Hook
+    {
+        public static void Postfix(UINurturance __instance)
+        {
+            foreach (Text text in __instance.GetComponentsInChildren<Text>(true))
+            {
+                if (text.text != null && text.text.Trim() == "精神")
+                {
+                    text.text = Heluo.Game.Data.Get<StringTable>("NurturanceProperty_Emotion")?.Text ?? "Energy";
+                    text.horizontalOverflow = HorizontalWrapMode.Overflow;
+                }
+            }
         }
     }
 
