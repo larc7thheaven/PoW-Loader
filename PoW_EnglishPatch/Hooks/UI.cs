@@ -58,7 +58,7 @@ namespace EnglishPatch.Hooks
         private static readonly System.Collections.Generic.Dictionary<Text, int> _OriginalWidthFitSize = new System.Collections.Generic.Dictionary<Text, int>();
 
         //Keeps a text on one line and shrinks it (never below minSize) until it is not wider than its rect
-        public static void ShrinkToWidth(Text text, int minSize)
+        public static void ShrinkToWidth(Text text, int minSize, float margin = 0f)
         {
             if (text == null)
             {
@@ -74,7 +74,7 @@ namespace EnglishPatch.Hooks
             text.resizeTextForBestFit = false;
             text.horizontalOverflow = HorizontalWrapMode.Overflow;
 
-            float width = text.rectTransform.rect.width;
+            float width = text.rectTransform.rect.width - margin;
             while (text.preferredWidth > width && text.fontSize > minSize)
             {
                 text.fontSize--;
@@ -183,7 +183,8 @@ namespace EnglishPatch.Hooks
 
             TextGenerator generator = new TextGenerator();
             generator.Populate(content, wrapped);
-            System.Collections.Generic.IList<UILineInfo> lines = generator.lines;
+            //A copy, measuring the lines below fills the generator again
+            UILineInfo[] lines = generator.GetLinesArray();
 
             float scale = text.pixelsPerUnit;
             float pair = generator.GetPreferredWidth("xx", oneLine);
@@ -202,16 +203,16 @@ namespace EnglishPatch.Hooks
 
             var result = new StringBuilder();
             int nextTag = 0;
-            for (int i = 0; i < lines.Count; i++)
+            for (int i = 0; i < lines.Length; i++)
             {
                 int start = lines[i].startCharIdx;
-                int end = i + 1 < lines.Count ? lines[i + 1].startCharIdx : content.Length;
+                int end = i + 1 < lines.Length ? lines[i + 1].startCharIdx : content.Length;
                 if (start >= content.Length)
                 {
                     break;
                 }
                 end = Mathf.Min(Mathf.Max(start, end), content.Length);
-                bool paragraphEnd = i + 1 >= lines.Count || end == start || content[end - 1] == '\n';
+                bool paragraphEnd = i + 1 >= lines.Length || end == start || content[end - 1] == '\n';
 
                 //The line without the spaces and line break around it
                 while (start < end && content[start] == ' ')
@@ -289,7 +290,7 @@ namespace EnglishPatch.Hooks
             }
 
             //Nothing to justify (a single line, or only paragraph ends), the text stays as it was
-            return lines.Count < 2 ? original : result.ToString();
+            return lines.Length < 2 ? original : result.ToString();
         }
 
         private static readonly System.Text.RegularExpressions.Regex _ColorTag = new System.Text.RegularExpressions.Regex("<color=[^>]*>|</color>");
@@ -302,7 +303,16 @@ namespace EnglishPatch.Hooks
                 return;
             }
 
-            string justified = Justified(text, text.text);
+            string justified;
+            try
+            {
+                justified = Justified(text, text.text);
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError("[EnglishPatch] Could not justify '" + text.text + "': " + e);
+                return;
+            }
             if (justified != text.text)
             {
                 text.supportRichText = true;
@@ -427,10 +437,13 @@ namespace EnglishPatch.Hooks
     public class WGStringTable_UpdateString_Hook
     {
         //Labels whose English text is wider than the box behind them, shrunk to the width of their box
-        private static readonly System.Collections.Generic.HashSet<string> _FitWidth = new System.Collections.Generic.HashSet<string>
+        //Label id and the room to keep free at both ends together, for labels on rounded backgrounds
+        private static readonly System.Collections.Generic.Dictionary<string, float> _FitWidth = new System.Collections.Generic.Dictionary<string, float>
         {
             //Relationship screen: Friendship bar label, Send Gifts and Outings buttons
-            "General_Favorability", "SecondaryInterface0808", "SecondaryInterface0803", "SecondaryInterface0804",
+            { "General_Favorability", 0f }, { "SecondaryInterface0808", 0f }, { "SecondaryInterface0803", 0f }, { "SecondaryInterface0804", 0f },
+            //Relationship screen: the small "Ability" tag in front of every level
+            { "SecondaryInterface0809", 10f },
         };
         private const int MinTitleSize = 14;
 
@@ -441,9 +454,9 @@ namespace EnglishPatch.Hooks
             text.font = TextUtil.Arial;
             TextUtil.FitWrapping(text);
 
-            if (_FitWidth.Contains(___id))
+            if (_FitWidth.TryGetValue(___id, out float margin))
             {
-                TextUtil.ShrinkToWidth(text, MinTitleSize);
+                TextUtil.ShrinkToWidth(text, MinTitleSize, margin);
             }
         }
     }
@@ -560,17 +573,30 @@ namespace EnglishPatch.Hooks
     public class WGPropsIntroduction_UpdateWidget_Hook
     {
         private const int MinSize = 14;
+        //Four more lines of size 20 than the two the box was made for
+        private const float ItemsExtraHeight = 92f;
 
         public static void Postfix(WGPropsIntroduction __instance, WGText ___description, WGText ___effectDescription)
         {
             if (TextUtil.HasParent<UIEquip>(__instance))
             {
-                TextUtil.ShrinkToHeight(TextUtil.TextOf(___description), MinSize);
+                //The Info box always reaches down to the bottom of the Effect box next to it
+                InfoBox.Grow(TextUtil.TextOf(___description), float.MaxValue, MinSize, null);
                 TextUtil.ShrinkToHeight(TextUtil.TextOf(___effectDescription), MinSize);
             }
-            else if (___effectDescription == null && TextUtil.HasParent<UIFormInventory>(__instance))
+            else if (TextUtil.HasParent<UIFormInventory>(__instance))
             {
-                InfoBox.GrowDown(TextUtil.TextOf(___description), MinSize);
+                Text effect = TextUtil.TextOf(___effectDescription);
+                if (effect == null)
+                {
+                    //Items tab: every item gets the same box, with room for six lines, only longer texts make it bigger
+                    InfoBox.Grow(TextUtil.TextOf(___description), ItemsExtraHeight, MinSize, null);
+                }
+                else
+                {
+                    //Medicine tab: the Effect part below moves down (and loses its empty space) to make room
+                    InfoBox.Grow(TextUtil.TextOf(___description), 0f, MinSize, effect);
+                }
             }
 
             //The item Info is justified everywhere
@@ -579,25 +605,87 @@ namespace EnglishPatch.Hooks
     }
 
     /*
-     * The Info box on the Items tab is a background image with the text stretched inside it. It is sized for two lines,
-     * longer English texts ran out of it (and over the "Info" title, the text is centered vertically).
-     * The item name is right above the box, so the box keeps its top and grows down, at most to the bottom of the panel.
-     * A text that does not even fit then shrinks (never below minSize).
+     * The item Info box is a background image with the text stretched inside it, sized for two lines of Chinese.
+     * The box keeps its top and grows down: by at least minGrow (so it does not change size from item to item),
+     * and more when the text needs it, but never past the bottom of the panel it sits in.
+     * With a part below it (the Effect box on the Medicine tab), that part moves down into the free room at the
+     * bottom of the panel and gives up its empty space, so the Info box can take that room.
+     * A text that still does not fit shrinks (never below minSize). The text always starts at the top of the box.
      */
     public static class InfoBox
     {
-        //Size and position each box has in the prefab, so we always grow it from there
+        //Room kept between a moved part and the text inside it
+        private const float Padding = 6f;
+
+        //Size and position each box has in the prefab, so we always change it from there
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2[]> _Original = new System.Collections.Generic.Dictionary<RectTransform, Vector2[]>();
 
-        public static void GrowDown(Text text, int minSize)
+        public static void Grow(Text text, float minGrow, int minSize, Text below)
         {
             RectTransform box = text != null ? text.transform.parent as RectTransform : null;
             RectTransform panel = box != null ? box.parent as RectTransform : null;
-            if (panel == null || box.GetComponent<Image>() == null || string.IsNullOrEmpty(text.text))
+            if (panel == null || box.GetComponent<Image>() == null)
+            {
+                return;
+            }
+            RectTransform belowBox = below != null ? below.transform.parent as RectTransform : null;
+            if (belowBox != null && belowBox.parent != panel)
+            {
+                belowBox = null;
+            }
+
+            Restore(box);
+            Restore(belowBox);
+            if (string.IsNullOrEmpty(text.text))
             {
                 return;
             }
 
+            text.alignment = (TextAnchor)((int)text.alignment % 3);
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            float missing = text.preferredHeight - text.rectTransform.rect.height;
+            float wanted = Mathf.Max(missing, minGrow);
+            if (wanted <= 0f)
+            {
+                return;
+            }
+
+            float room;
+            float drop = 0f;
+            float slack = 0f;
+            if (belowBox == null)
+            {
+                room = Mathf.Max(0f, Bottom(box, panel) - panel.rect.yMin);
+            }
+            else
+            {
+                //The part below can go down to the bottom of the panel, and lose what its own text does not use
+                drop = Mathf.Max(0f, Bottom(belowBox, panel) - panel.rect.yMin);
+                below.horizontalOverflow = HorizontalWrapMode.Wrap;
+                slack = Mathf.Max(0f, below.rectTransform.rect.height - below.preferredHeight - Padding);
+                room = drop + slack;
+            }
+
+            float grow = Mathf.Min(wanted, room);
+            MoveEdges(box, 0f, grow);
+            if (belowBox != null)
+            {
+                float moved = Mathf.Min(grow, drop);
+                MoveEdges(belowBox, grow, moved);
+            }
+
+            if (missing > grow)
+            {
+                TextUtil.ShrinkToHeight(text, minSize);
+            }
+        }
+
+        private static void Restore(RectTransform box)
+        {
+            if (box == null)
+            {
+                return;
+            }
             if (!_Original.TryGetValue(box, out Vector2[] original))
             {
                 original = new[] { box.sizeDelta, box.anchoredPosition };
@@ -605,31 +693,21 @@ namespace EnglishPatch.Hooks
             }
             box.sizeDelta = original[0];
             box.anchoredPosition = original[1];
+        }
 
-            //The text was centered in the box, so short and long texts started at different heights. It now always starts at the top.
-            text.alignment = (TextAnchor)((int)text.alignment % 3);
-            text.horizontalOverflow = HorizontalWrapMode.Wrap;
-            float missing = text.preferredHeight - text.rectTransform.rect.height;
-            if (missing <= 0f)
-            {
-                return;
-            }
-
-            //Lowest point the box may reach: the bottom of the panel it sits in
+        //Bottom edge of a box, in the panel's space
+        private static float Bottom(RectTransform box, RectTransform panel)
+        {
             Vector3[] corners = new Vector3[4];
             box.GetLocalCorners(corners);
-            float boxBottom = panel.InverseTransformPoint(box.TransformPoint(corners[0])).y;
-            float room = Mathf.Max(0f, boxBottom - panel.rect.yMin);
+            return panel.InverseTransformPoint(box.TransformPoint(corners[0])).y;
+        }
 
-            float grow = Mathf.Min(missing, room);
-            box.sizeDelta = original[0] + new Vector2(0f, grow);
-            //Keeping the top where it is, whatever the pivot
-            box.anchoredPosition = original[1] - new Vector2(0f, grow * (1f - box.pivot.y));
-
-            if (missing > room)
-            {
-                TextUtil.ShrinkToHeight(text, minSize);
-            }
+        //Moves the top edge of a box down by topDown and its bottom edge down by bottomDown, whatever its pivot
+        private static void MoveEdges(RectTransform box, float topDown, float bottomDown)
+        {
+            box.sizeDelta += new Vector2(0f, bottomDown - topDown);
+            box.anchoredPosition += new Vector2(0f, -bottomDown + box.pivot.y * (bottomDown - topDown));
         }
     }
 
@@ -860,8 +938,10 @@ namespace EnglishPatch.Hooks
     [HarmonyPatch(typeof(UIRelationship), "UpdateRelationship")]
     public class UIRelationship_UpdateRelationship_Hook
     {
-        public static void Postfix(ref Text ___community_name, ref Text ___community_introduction)
+        public static void Postfix(ref Text ___community_name, ref Text ___community_introduction, WGFavorability[] ___community_fav_level)
         {
+            RelationshipAbilities.Fit(___community_fav_level);
+
             //Debug.Log("UIRelationship_UpdateRelationship_Hook");
             ___community_name.font = TextUtil.Arial;
             ___community_introduction.font = TextUtil.Arial;
@@ -890,6 +970,129 @@ namespace EnglishPatch.Hooks
             }
 
             TextUtil.ShrinkToWidth(___item_name, 12);
+        }
+    }
+
+    //Status tab traits: the description shrinks (down to 15) to fit its box, and is justified
+    [HarmonyPatch(typeof(WGTalentItem), "UpdateWidget")]
+    public class WGTalentItem_UpdateWidget_Hook
+    {
+        private const int MinSize = 15;
+
+        public static void Postfix(WGTalentItem __instance)
+        {
+            System.Array talents = Traverse.Create(__instance).Field("talents").GetValue() as System.Array;
+            if (talents == null)
+            {
+                return;
+            }
+
+            foreach (object talent in talents)
+            {
+                Text text = TextUtil.TextOf(Traverse.Create(talent).Field("description").GetValue<WGText>());
+                if (text == null || string.IsNullOrEmpty(text.text))
+                {
+                    continue;
+                }
+
+                TextUtil.ShrinkToHeight(text, MinSize);
+                TextUtil.Justify(text);
+            }
+        }
+    }
+
+    /*
+     * Relationship screen, the ability text of every level: the text area was wider than the gray bar behind it,
+     * so long texts ran past the bar. The text area now ends a little before the right end of the bar, and all
+     * levels get the same font size, the largest at which every unlocked text fits on its lines.
+     */
+    public static class RelationshipAbilities
+    {
+        private const float Margin = 12f;
+        private const int MinSize = 14;
+
+        //Width, position and font size each text has in the prefab
+        private static readonly System.Collections.Generic.Dictionary<Text, float[]> _Original = new System.Collections.Generic.Dictionary<Text, float[]>();
+
+        public static void Fit(WGFavorability[] levels)
+        {
+            if (levels == null)
+            {
+                return;
+            }
+
+            var texts = new System.Collections.Generic.List<Text>();
+            foreach (WGFavorability level in levels)
+            {
+                Text content = level != null ? Traverse.Create(level).Field("content").GetValue<Text>() : null;
+                RectTransform bar = content != null ? content.transform.parent as RectTransform : null;
+                if (bar == null)
+                {
+                    continue;
+                }
+
+                RectTransform rect = content.rectTransform;
+                if (!_Original.TryGetValue(content, out float[] original))
+                {
+                    original = new[] { rect.sizeDelta.x, rect.anchoredPosition.x, content.fontSize };
+                    _Original[content] = original;
+                }
+                rect.sizeDelta = new Vector2(original[0], rect.sizeDelta.y);
+                rect.anchoredPosition = new Vector2(original[1], rect.anchoredPosition.y);
+                content.fontSize = (int)original[2];
+
+                //Keeping the left end, the right end comes Margin before the end of the bar
+                float left = rect.rect.xMin;
+                float barRight = rect.InverseTransformPoint(bar.TransformPoint(new Vector3(bar.rect.xMax, 0f, 0f))).x;
+                float width = barRight - Margin - left;
+                if (width > 0f && width < rect.rect.width)
+                {
+                    float shrink = rect.rect.width - width;
+                    rect.sizeDelta -= new Vector2(shrink, 0f);
+                    rect.anchoredPosition -= new Vector2(shrink * (1f - rect.pivot.x), 0f);
+                }
+
+                content.text = content.text.Replace('\u00A0', ' ');
+                content.horizontalOverflow = HorizontalWrapMode.Wrap;
+                texts.Add(content);
+            }
+
+            int size = int.MaxValue;
+            foreach (Text text in texts)
+            {
+                size = Mathf.Min(size, text.fontSize);
+            }
+            while (size > MinSize && !AllFit(texts, size))
+            {
+                size--;
+            }
+            foreach (Text text in texts)
+            {
+                text.fontSize = size;
+            }
+        }
+
+        //Whether every unlocked text fits its area at this size without breaking its lines
+        private static bool AllFit(System.Collections.Generic.List<Text> texts, int size)
+        {
+            foreach (Text text in texts)
+            {
+                if (!text.gameObject.activeInHierarchy || string.IsNullOrEmpty(text.text))
+                {
+                    continue;
+                }
+
+                text.fontSize = size;
+                float width = text.rectTransform.rect.width;
+                text.horizontalOverflow = HorizontalWrapMode.Overflow;
+                bool fits = text.preferredWidth <= width;
+                text.horizontalOverflow = HorizontalWrapMode.Wrap;
+                if (!fits || text.preferredHeight > text.rectTransform.rect.height)
+                {
+                    return false;
+                }
+            }
+            return true;
         }
     }
 
