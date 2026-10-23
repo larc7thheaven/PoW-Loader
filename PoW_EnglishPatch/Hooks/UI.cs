@@ -168,12 +168,25 @@ namespace EnglishPatch.Hooks
     [HarmonyPatch(typeof(WGStringTable), "UpdateString")]
     public class WGStringTable_UpdateString_Hook
     {
-        public static void Postfix(ref WGStringTable __instance)
+        //Title labels whose English text is wider than the brush stroke behind them, shrunk to the width of their box
+        private static readonly System.Collections.Generic.HashSet<string> _FitWidth = new System.Collections.Generic.HashSet<string> { "Medicine_Browse" };
+        private const int MinTitleSize = 14;
+
+        public static void Postfix(WGStringTable __instance, string ___id)
         {
             //Debug.Log("WGStringTable_UpdateString_Hook");
             Text text = __instance.GetComponent<Text>();
             text.font = TextUtil.Arial;
             TextUtil.FitWrapping(text);
+
+            if (_FitWidth.Contains(___id))
+            {
+                float width = text.rectTransform.rect.width;
+                while (text.preferredWidth > width && text.fontSize > MinTitleSize)
+                {
+                    text.fontSize--;
+                }
+            }
         }
     }
 
