@@ -633,6 +633,7 @@ namespace EnglishPatch.Hooks
             if (TextUtil.HasParent<UIEquip>(__instance))
             {
                 //The Info box always reaches down to the bottom of the Effect box next to it
+                InfoBox.SideMargins(TextUtil.TextOf(___description));
                 InfoBox.Grow(TextUtil.TextOf(___description), float.MaxValue, MinSize);
                 TextUtil.ShrinkToHeight(TextUtil.TextOf(___effectDescription), MinSize);
             }
@@ -642,6 +643,7 @@ namespace EnglishPatch.Hooks
                 if (effect == null)
                 {
                     //Items tab: every item gets the same box, with room for six lines, only longer texts make it bigger
+                    InfoBox.SideMargins(TextUtil.TextOf(___description));
                     InfoBox.Grow(TextUtil.TextOf(___description), ItemsExtraHeight, MinSize);
                 }
                 else
@@ -748,6 +750,22 @@ namespace EnglishPatch.Hooks
                     TextUtil.ShrinkToHeight(t, minSize);
                 }
             }
+        }
+
+        //Space between the box edges and the text, as in the Effect boxes and on the Medicine tab
+        private const float LeftMargin = 25f;
+        private const float RightMargin = 20f;
+
+        //The Info text on the Gear and Items tabs sat 5 further from the left edge than every other box text
+        public static void SideMargins(Text text)
+        {
+            if (text == null)
+            {
+                return;
+            }
+            RectTransform rect = text.rectTransform;
+            rect.offsetMin = new Vector2(LeftMargin, rect.offsetMin.y);
+            rect.offsetMax = new Vector2(-RightMargin, rect.offsetMax.y);
         }
 
         //Gap between the top of the box and the first line, the prefab leaves 9, which looked cramped
