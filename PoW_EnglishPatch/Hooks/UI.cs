@@ -15,19 +15,47 @@ namespace EnglishPatch.Hooks
 {
     internal static class TextUtil
     {
-        private static Font _Arial;
+        private static Font _Font;
 
-        //The built in Arial font is the same object every time, so we look it up once instead of on every text change
-        public static Font Arial
+        //Font for the English texts, chosen in the config file (see EnglishPatch.FontName). Looked up once, it is the same object every time.
+        //A font that is not installed on this PC falls back to the Arial built into Unity.
+        public static Font UIFont
         {
             get
             {
-                if (_Arial == null)
+                if (_Font == null)
                 {
-                    _Arial = Resources.GetBuiltinResource<Font>("Arial.ttf");
+                    _Font = LoadFont(EnglishPatch.FontName);
                 }
-                return _Arial;
+                return _Font;
             }
+        }
+
+        private static Font LoadFont(string name)
+        {
+            Font arial = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            if (string.IsNullOrEmpty(name) || name.Trim().Equals("Arial", System.StringComparison.OrdinalIgnoreCase))
+            {
+                return arial;
+            }
+
+            name = name.Trim();
+            foreach (string installed in Font.GetOSInstalledFontNames())
+            {
+                if (installed.Equals(name, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    //Arial behind it for any character the chosen font does not have
+                    Font font = Font.CreateDynamicFontFromOSFont(new[] { installed, "Arial" }, 20);
+                    if (font != null)
+                    {
+                        Debug.Log("[EnglishPatch] Using the font " + installed);
+                        return font;
+                    }
+                }
+            }
+
+            Debug.LogWarning("[EnglishPatch] The font '" + name + "' is not installed on this PC, using Arial instead");
+            return arial;
         }
 
         private static readonly AccessTools.FieldRef<WGText, Text> _WGTextText = AccessTools.FieldRefAccess<WGText, Text>("text");
@@ -405,7 +433,7 @@ namespace EnglishPatch.Hooks
         public static void Postfix(ref WGText __instance, ref Text ___text)
         {
             //Debug.Log("WGText_setText_Hook");
-            ___text.font = TextUtil.Arial;
+            ___text.font = TextUtil.UIFont;
             ___text.fontSize = 20;
             TextUtil.FitWrapping(___text);
         }
@@ -461,7 +489,7 @@ namespace EnglishPatch.Hooks
         {
             //Debug.Log("WGStringTable_UpdateString_Hook");
             Text text = __instance.GetComponent<Text>();
-            text.font = TextUtil.Arial;
+            text.font = TextUtil.UIFont;
             TextUtil.FitWrapping(text);
 
             if (_FitWidth.TryGetValue(___id, out float margin))
@@ -514,7 +542,7 @@ namespace EnglishPatch.Hooks
         public static void Postfix(Text ___Name)
         {
             //Debug.Log("WGBattleInfo_UpdateInfo_Hook");
-            ___Name.font = TextUtil.Arial;
+            ___Name.font = TextUtil.UIFont;
             ___Name.horizontalOverflow = HorizontalWrapMode.Overflow;
         }
     }
@@ -541,7 +569,7 @@ namespace EnglishPatch.Hooks
         public static void Prefix(WGPaoMaDengText __instance, ref string msg, Text ___pmdText, Image ___mask)
         {
             //The original measures the text right after setting it, so the font has to be Arial before that
-            ___pmdText.font = TextUtil.Arial;
+            ___pmdText.font = TextUtil.UIFont;
 
             if (msg == null || !FitToBox.Contains(__instance) || __instance.direction != WGPaoMaDengText.Direction.Vertical || ___mask == null)
             {
@@ -885,7 +913,7 @@ namespace EnglishPatch.Hooks
         {
             //Debug.Log("WGNurturanceBtn_UpdateButton_Hook");
             Text text = __instance.Btn_Name;
-            text.font = TextUtil.Arial;
+            text.font = TextUtil.UIFont;
 
             //Only Return, Socialize and the character names inside Socialize are fitted to their box, the other buttons keep the default size
             Nurturance nurturance = __instance.tree?.Value;
@@ -961,7 +989,7 @@ namespace EnglishPatch.Hooks
         public static void Postfix(ref Text ___Title)
         {
             //Debug.Log("WGTitleValue_TitleFormat_Hook");
-            ___Title.font = TextUtil.Arial;
+            ___Title.font = TextUtil.UIFont;
             ___Title.fontSize = 24;
         }
     }
@@ -972,7 +1000,7 @@ namespace EnglishPatch.Hooks
         public static void Postfix(ref Text ___Value)
         {
             //Debug.Log("WGTitleValue_ValueFromat_Hook");
-            ___Value.font = TextUtil.Arial;
+            ___Value.font = TextUtil.UIFont;
             ___Value.fontSize = 20;
         }
     }
@@ -985,8 +1013,8 @@ namespace EnglishPatch.Hooks
             RelationshipAbilities.Fit(___community_fav_level);
 
             //Debug.Log("UIRelationship_UpdateRelationship_Hook");
-            ___community_name.font = TextUtil.Arial;
-            ___community_introduction.font = TextUtil.Arial;
+            ___community_name.font = TextUtil.UIFont;
+            ___community_introduction.font = TextUtil.UIFont;
 
             //The name box is sized for 2-4 Chinese characters, "Nan Feihuang" wrapped at the space and only "Nan" was left. We keep it on one line and shrink it to fit.
             TextUtil.ShrinkToWidth(___community_name, 16);
@@ -1342,7 +1370,7 @@ namespace EnglishPatch.Hooks
                 if (text.text.Trim() == "新")
                 {
                     text.text = Heluo.Game.Data.Get<StringTable>("General_New")?.Text ?? "New";
-                    text.font = TextUtil.Arial;
+                    text.font = TextUtil.UIFont;
                     //The box is sized for one Chinese character. Wrapping or truncating would hide the word, so it may overflow
                     //and we shrink the font ourselves until the word is as wide as the box
                     text.resizeTextForBestFit = false;
