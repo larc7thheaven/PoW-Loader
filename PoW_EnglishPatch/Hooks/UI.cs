@@ -155,13 +155,16 @@ namespace EnglishPatch.Hooks
 
     /*
      * WGPaoMaDengText is a marquee: text taller (or wider) than its box scrolls through after 2 seconds.
-     * For the vertical ones (skill effects, course descriptions) we shrink the font until the text fits the box,
-     * so it can be read at once. Text that does not even fit at the minimum size still scrolls like before.
+     * For the skill effect and the course description we shrink the font until the text fits the box, so it can be read at once.
+     * Text that does not even fit at the minimum size still scrolls like before. Other marquees (like the inner art effect) stay as they are.
      */
     [HarmonyPatch(typeof(WGPaoMaDengText), "AddMessage")]
     public class WGPaoMaDengText_AddMessage_Hook
     {
         private const int MinFontSize = 16;
+
+        //Marquees that shrink to fit, registered by the widgets owning them (see below)
+        public static readonly System.Collections.Generic.HashSet<WGPaoMaDengText> FitToBox = new System.Collections.Generic.HashSet<WGPaoMaDengText>();
 
         //Font size the prefab gave each marquee text, before we started shrinking it
         private static readonly System.Collections.Generic.Dictionary<Text, int> _OriginalFontSize = new System.Collections.Generic.Dictionary<Text, int>();
@@ -171,7 +174,7 @@ namespace EnglishPatch.Hooks
             //The original measures the text right after setting it, so the font has to be Arial before that
             ___pmdText.font = TextUtil.Arial;
 
-            if (msg == null || __instance.direction != WGPaoMaDengText.Direction.Vertical || ___mask == null)
+            if (msg == null || !FitToBox.Contains(__instance) || __instance.direction != WGPaoMaDengText.Direction.Vertical || ___mask == null)
             {
                 return;
             }
@@ -198,6 +201,32 @@ namespace EnglishPatch.Hooks
                 ___pmdText.text = fitted;
             }
             msg = fitted;
+        }
+    }
+
+    //The skill effect box (reading screen and martial arts form) shrinks to fit
+    [HarmonyPatch(typeof(WGSkillsIntroduction), "UpdateWidget")]
+    public class WGSkillsIntroduction_UpdateWidget_Hook
+    {
+        public static void Prefix(WGPaoMaDengText ___effectDescription)
+        {
+            if (___effectDescription != null)
+            {
+                WGPaoMaDengText_AddMessage_Hook.FitToBox.Add(___effectDescription);
+            }
+        }
+    }
+
+    //The course description on the elective screen shrinks to fit
+    [HarmonyPatch(typeof(WGCourseIntroduction), "UpdateWidget")]
+    public class WGCourseIntroduction_UpdateWidget_Hook
+    {
+        public static void Prefix(WGPaoMaDengText ___description)
+        {
+            if (___description != null)
+            {
+                WGPaoMaDengText_AddMessage_Hook.FitToBox.Add(___description);
+            }
         }
     }
 
