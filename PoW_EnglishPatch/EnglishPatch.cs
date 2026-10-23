@@ -27,6 +27,9 @@ namespace EnglishPatch
 
         private Harmony _HM;
 
+        //Font for the English texts, from BepInEx/config/plugins.englishpatch.cfg
+        public static string FontName { get; private set; } = "Palatino Linotype";
+
         public void Load()
         {
             ModAPI.ModAPI.GetInstance().ResourceRedirector.AddRessourceFolder("ModResources" + Path.DirectorySeparatorChar + "EnglishTranslate");
@@ -54,6 +57,10 @@ namespace EnglishPatch
         private void Awake()
         {
             this.name = GetName();
+            FontName = Config.Bind("Text", "Font", "Palatino Linotype",
+                "Font for the English texts. Any font installed in Windows works, by its name as shown in the Windows font list " +
+                "(for example Palatino Linotype, Book Antiqua, Constantia, Georgia, Cambria, Arial). " +
+                "A font that is not installed falls back to Arial. Restart the game after changing it.").Value;
             //Adding it to ModAPI list
             ModAPI.ModAPI.GetInstance().AddMod(this);
         }
