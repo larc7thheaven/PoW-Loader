@@ -34,7 +34,6 @@
     <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="Hooks\Dialog.cs" />
     <Compile Include="Hooks\PlayerName.cs" />
     <Compile Include="Hooks\UI.cs" />
     <Compile Include="EnglishPatch.cs" />

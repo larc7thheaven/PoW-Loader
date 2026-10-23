@@ -10,6 +10,38 @@ using UnityEngine.UI;
 
 namespace EnglishPatch.Hooks
 {
+    internal static class TextUtil
+    {
+        private static Font _Arial;
+
+        //The built in Arial font is the same object every time, so we look it up once instead of on every text change
+        public static Font Arial
+        {
+            get
+            {
+                if (_Arial == null)
+                {
+                    _Arial = Resources.GetBuiltinResource<Font>("Arial.ttf");
+                }
+                return _Arial;
+            }
+        }
+
+        //Short texts stay on one line, longer ones wrap and may grow downwards
+        public static void FitWrapping(Text text)
+        {
+            if (text.text.Length <= 20)
+            {
+                text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            }
+            else
+            {
+                text.horizontalOverflow = HorizontalWrapMode.Wrap;
+                text.verticalOverflow = VerticalWrapMode.Overflow;
+            }
+        }
+    }
+
     [HarmonyPatch]
     public class WGText_setText_Hook
     {
@@ -21,17 +53,9 @@ namespace EnglishPatch.Hooks
         public static void Postfix(ref WGText __instance, ref Text ___text)
         {
             //Debug.Log("WGText_setText_Hook");
-            ___text.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            ___text.font = TextUtil.Arial;
             ___text.fontSize = 20;
-            if (___text.text.Length <= 20)
-            {
-                ___text.horizontalOverflow = HorizontalWrapMode.Overflow;
-            }
-            else
-            {
-                ___text.horizontalOverflow = HorizontalWrapMode.Wrap;
-                ___text.verticalOverflow = VerticalWrapMode.Overflow;
-            }
+            TextUtil.FitWrapping(___text);
         }
     }
 
@@ -63,16 +87,9 @@ namespace EnglishPatch.Hooks
         public static void Postfix(ref WGStringTable __instance)
         {
             //Debug.Log("WGStringTable_UpdateString_Hook");
-            __instance.GetComponent<Text>().font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            if (__instance.GetComponent<Text>().text.Length <= 20)
-            {
-                __instance.GetComponent<Text>().horizontalOverflow = HorizontalWrapMode.Overflow;
-            }
-            else
-            {
-                __instance.GetComponent<Text>().horizontalOverflow = HorizontalWrapMode.Wrap;
-                __instance.GetComponent<Text>().verticalOverflow = VerticalWrapMode.Overflow;
-            }
+            Text text = __instance.GetComponent<Text>();
+            text.font = TextUtil.Arial;
+            TextUtil.FitWrapping(text);
         }
     }
 
@@ -107,8 +124,9 @@ namespace EnglishPatch.Hooks
         public static void Postfix(ref WGBattleInfo __instance, ref WGText ___Name)
         {
             //Debug.Log("WGBattleInfo_UpdateInfo_Hook");
-            ___Name.GetComponent<Text>().font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            ___Name.GetComponent<Text>().horizontalOverflow = HorizontalWrapMode.Overflow;
+            Text text = ___Name.GetComponent<Text>();
+            text.font = TextUtil.Arial;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
         }
     }
 
@@ -118,7 +136,7 @@ namespace EnglishPatch.Hooks
         public static void Postfix(ref WGPaoMaDengText __instance, ref WGText ___pmdText)
         {
             //Debug.Log("WGPaoMaDengText_AddMessage_Hook");
-            ___pmdText.GetComponent<Text>().font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            ___pmdText.GetComponent<Text>().font = TextUtil.Arial;
         }
     }
 
@@ -128,9 +146,10 @@ namespace EnglishPatch.Hooks
         public static void Postfix(ref WGNurturanceBtn __instance, ref WGText ___Btn_Name)
         {
             //Debug.Log("WGNurturanceBtn_UpdateButton_Hook");
-            __instance.Btn_Name.GetComponent<Text>().font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            __instance.Btn_Name.GetComponent<Text>().horizontalOverflow = HorizontalWrapMode.Wrap;
-            __instance.Btn_Name.GetComponent<Text>().verticalOverflow = VerticalWrapMode.Overflow;
+            Text text = __instance.Btn_Name.GetComponent<Text>();
+            text.font = TextUtil.Arial;
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
         }
     }
 
@@ -161,15 +180,7 @@ namespace EnglishPatch.Hooks
         public static void Postfix(ref WGText ___itemName)
         {
             //Debug.Log("WGBookBtn_UpdateWidget_Hook");
-            if (___itemName.GetComponent<Text>().text.Length <= 20)
-            {
-                ___itemName.GetComponent<Text>().horizontalOverflow = HorizontalWrapMode.Overflow;
-            }
-            else
-            {
-                ___itemName.GetComponent<Text>().horizontalOverflow = HorizontalWrapMode.Wrap;
-                ___itemName.GetComponent<Text>().verticalOverflow = VerticalWrapMode.Overflow;
-            }
+            TextUtil.FitWrapping(___itemName.GetComponent<Text>());
         }
     }
 
@@ -179,8 +190,9 @@ namespace EnglishPatch.Hooks
         public static void Postfix(ref WGText ___itemName)
         {
             //Debug.Log("WGTraitBtn_UpdateWidget_Hook");
-            ___itemName.GetComponent<Text>().alignment = TextAnchor.MiddleLeft;
-            ___itemName.GetComponent<Text>().rectTransform.offsetMin = new Vector2(-120f, -20f);
+            Text text = ___itemName.GetComponent<Text>();
+            text.alignment = TextAnchor.MiddleLeft;
+            text.rectTransform.offsetMin = new Vector2(-120f, -20f);
         }
     }
 
@@ -190,7 +202,7 @@ namespace EnglishPatch.Hooks
         public static void Postfix(ref Text ___Title)
         {
             //Debug.Log("WGTitleValue_TitleFormat_Hook");
-            ___Title.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            ___Title.font = TextUtil.Arial;
             ___Title.fontSize = 24;
         }
     }
@@ -201,7 +213,7 @@ namespace EnglishPatch.Hooks
         public static void Postfix(ref Text ___Value)
         {
             //Debug.Log("WGTitleValue_ValueFromat_Hook");
-            ___Value.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            ___Value.font = TextUtil.Arial;
             ___Value.fontSize = 20;
         }
     }
@@ -212,8 +224,8 @@ namespace EnglishPatch.Hooks
         public static void Postfix(ref Text ___community_name, ref Text ___community_introduction)
         {
             //Debug.Log("UIRelationship_UpdateRelationship_Hook");
-            ___community_name.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            ___community_introduction.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            ___community_name.font = TextUtil.Arial;
+            ___community_introduction.font = TextUtil.Arial;
 
             //The game turns every space into a non-breaking space (StringTool.Replace), so English lines broke in the middle of words. Turning them back allows wrapping at spaces.
             ___community_introduction.text = ___community_introduction.text.Replace(' ', ' ');
@@ -306,15 +318,6 @@ namespace EnglishPatch.Hooks
             RectTransform btn_text = (RectTransform)btn.Find("Text");
             UnityEngine.UI.Text btn_text_text = (UnityEngine.UI.Text)btn_text.gameObject.GetComponentInChildren(typeof(UnityEngine.UI.Text));
             btn_text_text.text = "Credits";
-
-            /*
-            Reducing Menu Button Font Size
-            menu.Find("BtnContinue").Find("Btn").Find("Text").GetComponent<Text>().fontSize = 20;
-             menu.Find("BtnNewGame").Find("Btn").Find("Text").GetComponent<Text>().fontSize = 23;
-             menu.Find("BtnLoadGame").Find("Btn").Find("Text").GetComponent<Text>().fontSize = 23;
-            menu.Find("BtnSystem").Find("Btn").Find("Text").GetComponent<Text>().fontSize = 16;
-            menu.Find("BtnQuitGame").Find("Btn").Find("Text").GetComponent<Text>().fontSize = 23;
-            */
 
             //Forcing the UI to update itself after all the changes we made. We just force every RectTransform to update itself
             for (int i = 0; i < __instance.transform.childCount; ++i)
