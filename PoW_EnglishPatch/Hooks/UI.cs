@@ -686,8 +686,17 @@ namespace EnglishPatch.Hooks
     [HarmonyPatch(typeof(UINurturance), "UpdateValue")]
     public class UINurturance_UpdateValue_Hook
     {
+        //The screen is created once, so its texts only need to be searched the first time
+        private static UINurturance _Translated;
+
         public static void Postfix(UINurturance __instance)
         {
+            if (_Translated == __instance)
+            {
+                return;
+            }
+            _Translated = __instance;
+
             foreach (Text text in __instance.GetComponentsInChildren<Text>(true))
             {
                 if (text.text != null && text.text.Trim() == "精神")
