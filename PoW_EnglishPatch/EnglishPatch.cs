@@ -32,7 +32,18 @@ namespace EnglishPatch
             ModAPI.ModAPI.GetInstance().ResourceRedirector.AddRessourceFolder("ModResources" + Path.DirectorySeparatorChar + "EnglishTranslate");
 
             _HM = new Harmony("EnglishPatch");
-            _HM.PatchAll();
+            //Patching hook by hook, so one hook broken by a game update does not stop all the others
+            foreach (System.Type type in AccessTools.GetTypesFromAssembly(typeof(EnglishPatch).Assembly))
+            {
+                try
+                {
+                    _HM.CreateClassProcessor(type).Patch();
+                }
+                catch (System.Exception e)
+                {
+                    UnityEngine.Debug.LogError("[EnglishPatch] Could not apply hook " + type.FullName + ": " + e.Message);
+                }
+            }
         }
 
         public void Unload()
