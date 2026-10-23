@@ -80,6 +80,49 @@ namespace EnglishPatch.Hooks
             }
         }
 
+        //Font size each text had before ShrinkToBox changed it, texts are reused for different strings
+        private static readonly System.Collections.Generic.Dictionary<Text, int> _OriginalBoxFitSize = new System.Collections.Generic.Dictionary<Text, int>();
+
+        //Wraps a text at spaces and shrinks it (never below minSize) until it fits its rect without breaking a word.
+        //Unlike best fit it never hides the text, at the minimum size it may overflow a little.
+        public static void ShrinkToBox(Text text, int minSize)
+        {
+            if (text == null || string.IsNullOrEmpty(text.text))
+            {
+                return;
+            }
+
+            if (!_OriginalBoxFitSize.TryGetValue(text, out int originalSize))
+            {
+                originalSize = text.fontSize;
+                _OriginalBoxFitSize[text] = originalSize;
+            }
+            text.fontSize = originalSize;
+            text.resizeTextForBestFit = false;
+            text.text = text.text.Replace('\u00A0', ' ');
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+
+            Rect rect = text.rectTransform.rect;
+            string[] words = text.text.Split(new[] { ' ', '\n' }, System.StringSplitOptions.RemoveEmptyEntries);
+            while (text.fontSize > minSize && (text.preferredHeight > rect.height || WidestWord(text, words) > rect.width))
+            {
+                text.fontSize--;
+            }
+        }
+
+        private static float WidestWord(Text text, string[] words)
+        {
+            TextGenerationSettings settings = text.GetGenerationSettings(Vector2.zero);
+            settings.horizontalOverflow = HorizontalWrapMode.Overflow;
+            float widest = 0f;
+            foreach (string word in words)
+            {
+                widest = Mathf.Max(widest, text.cachedTextGeneratorForLayout.GetPreferredWidth(word, settings) / text.pixelsPerUnit);
+            }
+            return widest;
+        }
+
         //Shrinks a wrapping text until it is not taller than its rect, never below minSize. It is not truncated, so a very long text may still overflow a little.
         public static void ShrinkToHeight(Text text, int minSize)
         {
@@ -442,9 +485,18 @@ namespace EnglishPatch.Hooks
             //Debug.Log("WGNurturanceBtn_UpdateButton_Hook");
             Text text = __instance.Btn_Name;
             text.font = TextUtil.Arial;
-            text.horizontalOverflow = HorizontalWrapMode.Wrap;
-            text.verticalOverflow = VerticalWrapMode.Overflow;
+
+            //Some buttons (Return) have a tall narrow box made for Chinese written top to bottom, English is stacked letter by letter there
+            Rect rect = text.rectTransform.rect;
+            if (rect.height > rect.width * 1.5f && !string.IsNullOrEmpty(text.text))
+            {
+                text.text = string.Join("\n", System.Array.ConvertAll(text.text.Replace(" ", "").ToCharArray(), c => c.ToString()));
+            }
+
+            TextUtil.ShrinkToBox(text, MinSize);
         }
+
+        private const int MinSize = 10;
     }
 
     [HarmonyPatch(typeof(UIRegistration), "NameCheck")]
