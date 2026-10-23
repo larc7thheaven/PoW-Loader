@@ -499,12 +499,16 @@ namespace EnglishPatch.Hooks
                 {
                     text.text = Heluo.Game.Data.Get<StringTable>("General_New")?.Text ?? "New";
                     text.font = TextUtil.Arial;
-                    //Best fit only shrinks text that wraps and truncates
-                    text.horizontalOverflow = HorizontalWrapMode.Wrap;
-                    text.verticalOverflow = VerticalWrapMode.Truncate;
-                    text.resizeTextMinSize = 8;
-                    text.resizeTextMaxSize = text.fontSize;
-                    text.resizeTextForBestFit = true;
+                    //The box is sized for one Chinese character. Wrapping or truncating would hide the word, so it may overflow
+                    //and we shrink the font ourselves until the word is as wide as the box
+                    text.resizeTextForBestFit = false;
+                    text.horizontalOverflow = HorizontalWrapMode.Overflow;
+                    text.verticalOverflow = VerticalWrapMode.Overflow;
+                    float width = text.rectTransform.rect.width;
+                    if (width > 0 && text.preferredWidth > width)
+                    {
+                        text.fontSize = Mathf.Max(8, Mathf.FloorToInt(text.fontSize * width / text.preferredWidth));
+                    }
                 }
             }
         }
