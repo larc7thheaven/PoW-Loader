@@ -111,6 +111,15 @@ namespace EnglishPatch.Hooks
             }
         }
 
+        //Gives a text shrunk by ShrinkToBox its original size back, for reused texts that should not be fitted anymore
+        public static void RestoreBoxFit(Text text)
+        {
+            if (text != null && _OriginalBoxFitSize.TryGetValue(text, out int originalSize))
+            {
+                text.fontSize = originalSize;
+            }
+        }
+
         private static float WidestWord(Text text, string[] words)
         {
             TextGenerationSettings settings = text.GetGenerationSettings(Vector2.zero);
@@ -485,7 +494,19 @@ namespace EnglishPatch.Hooks
             Text text = __instance.Btn_Name;
             text.font = TextUtil.Arial;
 
-            //Some buttons (Return) have a tall narrow box made for Chinese written top to bottom, English is stacked letter by letter there
+            //Only Return, Socialize and the character names inside Socialize are fitted to their box, the other buttons keep the default size
+            Nurturance nurturance = __instance.tree?.Value;
+            bool fit = nurturance != null
+                && (nurturance.Fuction == NurturanceFunction.Back || nurturance.Fuction == NurturanceFunction.Firend || nurturance.Id == "Nurturance_05");
+            if (!fit)
+            {
+                TextUtil.RestoreBoxFit(text);
+                text.horizontalOverflow = HorizontalWrapMode.Wrap;
+                text.verticalOverflow = VerticalWrapMode.Overflow;
+                return;
+            }
+
+            //Return has a tall narrow box made for Chinese written top to bottom, English is stacked letter by letter there
             Rect rect = text.rectTransform.rect;
             if (rect.height > rect.width * 1.5f && !string.IsNullOrEmpty(text.text))
             {
