@@ -148,6 +148,53 @@ namespace ModAPI
             return sprite;
         }
 
+        public Sprite GetRedirectedSprite(string path)
+        {
+            return LoadSprite(path);
+        }
+
+        //Sprites built for replacing sprites inside prefabs. Kept apart from _AssetCache since they copy pivot, pixelsPerUnit and border of the sprite they replace.
+        private Dictionary<string, Sprite> _PrefabSpriteCache;
+
+        private Sprite LoadPrefabSprite(string path, Sprite original)
+        {
+            if (_PrefabSpriteCache.TryGetValue(path, out Sprite cached))
+            {
+                return cached;
+            }
+
+            string rootRedirect = GetRedirect(path);
+            string absolutePath = Paths.GameRootPath + Path.DirectorySeparatorChar + rootRedirect + Path.DirectorySeparatorChar + path;
+
+            //We need our own texture here. The texture of the original sprite is often a sprite atlas shared with other sprites (item icons etc.),
+            //overwriting it with LoadImage replaced the whole atlas and made those sprites disappear until a restart.
+            Texture2D texture2D = new Texture2D(2, 2);
+            texture2D.LoadImage(File.ReadAllBytes(absolutePath));
+
+            Vector2 pivot = new Vector2(original.pivot.x / original.rect.width, original.pivot.y / original.rect.height);
+            Sprite sprite = Sprite.Create(texture2D, new Rect(0f, 0f, texture2D.width, texture2D.height), pivot, original.pixelsPerUnit, 0, SpriteMeshType.FullRect, original.border);
+            sprite.name = original.name;
+
+            _PrefabSpriteCache[path] = sprite;
+            return sprite;
+        }
+
+        //Resolves the redirect path for a sprite used inside a prefab. Prefers the path the game bundles told us, falls back to our own files by name.
+        private string GetPrefabImagePath(string imageFileName)
+        {
+            if (assetNameToPath.TryGetValue(imageFileName, out string path) && ExistsRedirect(path))
+            {
+                return path;
+            }
+
+            if (_RedirectFileNameToPath.TryGetValue(imageFileName, out path) && path != null)
+            {
+                return path;
+            }
+
+            return null;
+        }
+
         private TextAsset LoadText(string path)
         {
             if (path.StartsWith("Assets/") || path.StartsWith("assets/"))
@@ -238,26 +285,16 @@ namespace ModAPI
                         {
                             string originalSpriteName = childImage.sprite.name;
                             string imageFileName = originalSpriteName + ".png";
-                            if (assetNameToPath.ContainsKey(imageFileName))
+                            string path = GetPrefabImagePath(imageFileName);
+                            if (path != null)
                             {
-                                string path = assetNameToPath[imageFileName];
-                                if (ExistsRedirect(path))
-                                {
-                                    //We have a replacement for the sprite
-                                    //Debug.Log("Overriding the texture of the over Prefab loaded Sprite  " + childImage.sprite.name + " with the texture " + path);
-                                    //Overwritting Sprite Texture
-                                    string rootRedirect = GetRedirect(path);
-                                    string absolutePath = Paths.GameRootPath + Path.DirectorySeparatorChar + rootRedirect + Path.DirectorySeparatorChar + path;
-                                    childImage.sprite.texture.LoadImage(File.ReadAllBytes(absolutePath), false);
-                                }
-                                else
-                                {
-                                    //Debug.Log("Could not find prefab redirect for image from path " + path);
-                                }
+                                //We have a replacement for the sprite
+                                //Debug.Log("Overriding the Prefab loaded Sprite " + childImage.sprite.name + " with " + path);
+                                childImage.sprite = LoadPrefabSprite(path, childImage.sprite);
                             }
                             else
                             {
-                                //Debug.Log("Could not find prefab redirect for image file " + imageFileName + " from bundle " + context.Bundle.name);
+                                //Debug.Log("Could not find prefab redirect for image file " + imageFileName);
                             }
                         }
                     }
@@ -324,6 +361,8 @@ namespace ModAPI
             PathRedirections = new Dictionary<string, List<string>>(_IgnoreCaseStringComparer);
             _AssetCache = new Dictionary<string, object>(_IgnoreCaseStringComparer);
             assetNameToPath = new Dictionary<string, string>(_IgnoreCaseStringComparer);
+            _PrefabSpriteCache = new Dictionary<string, Sprite>(_IgnoreCaseStringComparer);
+            _RedirectFileNameToPath = new Dictionary<string, string>(_IgnoreCaseStringComparer);
 
             //ResourceRedirection.LogAllLoadedResources = true;
 
@@ -426,6 +465,20 @@ namespace ModAPI
                 PathRedirections[path] = new List<string>();
             }
             PathRedirections[path].Add(rootPath);
+
+            //Remembering our files by name for the prefab sprite replacement. A name used in more than one folder is ambiguous, so it is stored as null.
+            string fileName = Path.GetFileName(path);
+            if (_RedirectFileNameToPath.TryGetValue(fileName, out string knownPath) && !string.Equals(knownPath, path, StringComparison.OrdinalIgnoreCase))
+            {
+                _RedirectFileNameToPath[fileName] = null;
+            }
+            else
+            {
+                _RedirectFileNameToPath[fileName] = path;
+            }
         }
+
+        //File name => path inside the resource folders, null if the file name is not unique
+        private Dictionary<string, string> _RedirectFileNameToPath;
     }
 }
