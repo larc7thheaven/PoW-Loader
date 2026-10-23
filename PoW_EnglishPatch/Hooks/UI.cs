@@ -606,6 +606,8 @@ namespace EnglishPatch.Hooks
             box.sizeDelta = original[0];
             box.anchoredPosition = original[1];
 
+            //The text was centered in the box, so short and long texts started at different heights. It now always starts at the top.
+            text.alignment = (TextAnchor)((int)text.alignment % 3);
             text.horizontalOverflow = HorizontalWrapMode.Wrap;
             float missing = text.preferredHeight - text.rectTransform.rect.height;
             if (missing <= 0f)
