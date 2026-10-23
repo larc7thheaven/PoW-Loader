@@ -1,0 +1,23 @@
+<Project>
+  <!--
+    Settings shared by the SDK style projects. The WPF project PoW_ModLoader_Config still uses the old project format,
+    so everything here is limited to SDK style projects.
+  -->
+  <PropertyGroup Condition="'$(UsingMicrosoftNETSdk)' == 'true'">
+    <LangVersion>8.0</LangVersion>
+    <!-- The projects keep their Properties\AssemblyInfo.cs -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- Output goes straight into the folders under Output\, without a net472\ sub folder -->
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DebugType Condition="'$(Configuration)' == 'Debug'">full</DebugType>
+    <DebugType Condition="'$(Configuration)' == 'Release'">pdbonly</DebugType>
+    <!-- Game, Unity and BepInEx assemblies the plugins compile against -->
+    <GameDependencies>$(MSBuildThisFileDirectory)Dependencies\</GameDependencies>
+    <BepInExCore>$(MSBuildThisFileDirectory)Output\Mod\BepInEx\core\</BepInExCore>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(UsingMicrosoftNETSdk)' == 'true'">
+    <!-- Lets `dotnet build` and CI build the .NET Framework projects without an installed targeting pack -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

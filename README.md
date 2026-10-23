@@ -35,7 +35,15 @@ To build the mod yourself:
     git clone https://github.com/Magxm/PoW-Loader
     ```
 
-2. Open the solution file and compile. A ready-to-use build will be located in `Output/Mod`.
+2. Open `PoW_Loader.sln` in Visual Studio 2019 or newer and build. NuGet packages are restored automatically. A ready-to-use build will be located in `Output/Mod`.
+
+    The mod projects can also be built from the command line with the [.NET SDK](https://dotnet.microsoft.com/download), on Windows, Linux or macOS:
+
+    ```bash
+    dotnet build PoW_EnglishPatch -c Release
+    ```
+
+    This builds `PoW_ModAPI` and `PoW_EnglishPatch` into `Output/Mod/BepInEx/plugins`. The mod loader config tool (`PoW_ModLoader_Config`) is a WPF app and still needs Visual Studio on Windows.
 
 
 ### Translation and Update Automation
