@@ -238,10 +238,9 @@ namespace EnglishPatch.Hooks
     [HarmonyPatch(typeof(WGStringTable), "UpdateString")]
     public class WGStringTable_UpdateString_Hook
     {
-        //Title labels whose English text is wider than the brush stroke behind them, shrunk to the width of their box
+        //Labels whose English text is wider than the box behind them, shrunk to the width of their box
         private static readonly System.Collections.Generic.HashSet<string> _FitWidth = new System.Collections.Generic.HashSet<string>
         {
-            "Medicine_Browse",
             //Relationship screen: Friendship bar label, Send Gifts and Outings buttons
             "General_Favorability", "SecondaryInterface0808", "SecondaryInterface0803", "SecondaryInterface0804",
         };
