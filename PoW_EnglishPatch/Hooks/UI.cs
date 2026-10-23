@@ -593,8 +593,8 @@ namespace EnglishPatch.Hooks
     public class WGPropsIntroduction_UpdateWidget_Hook
     {
         private const int MinSize = 14;
-        //The texts are set to 20 every time, on the Medicine tab they are a little smaller
-        private const int MedicineSize = 18;
+        //The "Info" and "Effect" titles are 25 in the prefab
+        private const int MedicineTitleSize = 20;
         //Four more lines of size 20 than the two the box was made for
         private const float ItemsExtraHeight = 92f;
 
@@ -616,20 +616,28 @@ namespace EnglishPatch.Hooks
                 }
                 else
                 {
-                    //Medicine tab: Info and Effect are a little smaller, and the Effect part below moves down
+                    //Medicine tab: the "Info" and "Effect" titles are a little smaller, and the Effect part below moves down
                     //(and loses its empty space) to make room for Info
                     Text info = TextUtil.TextOf(___description);
-                    if (info != null)
-                    {
-                        info.fontSize = MedicineSize;
-                    }
-                    effect.fontSize = MedicineSize;
+                    SetTitleSize(info, MedicineTitleSize);
+                    SetTitleSize(effect, MedicineTitleSize);
                     InfoBox.Grow(info, 0f, MinSize, effect);
                 }
             }
 
             //The item Info is justified everywhere
             TextUtil.Justify(TextUtil.TextOf(___description));
+        }
+
+        //The title ("Info", "Effect") is the Title child of the box the text sits in
+        private static void SetTitleSize(Text text, int size)
+        {
+            Transform title = text != null && text.transform.parent != null ? text.transform.parent.Find("Title") : null;
+            Text titleText = title != null ? title.GetComponent<Text>() : null;
+            if (titleText != null)
+            {
+                titleText.fontSize = size;
+            }
         }
     }
 
