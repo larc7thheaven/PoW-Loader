@@ -1,7 +1,4 @@
-﻿using System.Collections.Generic;
-using System.Reflection;
-
-using HarmonyLib;
+﻿using HarmonyLib;
 
 using Heluo;
 using Heluo.UI;
@@ -18,23 +15,16 @@ namespace PoW_ModAPI.ResourceRedirection
     So after the original ran, we load the sprite ourselves whenever we have a redirect for it.
     */
 
-    [HarmonyPatch]
-    public class ImageLanguage_LoadSprite_Hook
+    public static class ImageLanguageRedirector
     {
-        public static IEnumerable<MethodBase> TargetMethods()
+        public static void ApplyRedirect(ImageLanguage imageLanguage)
         {
-            yield return AccessTools.Method(typeof(ImageLanguage), "Awake");
-            yield return AccessTools.Method(typeof(ImageLanguage), "LoadSprite");
-        }
-
-        public static void Postfix(ImageLanguage __instance)
-        {
-            if (__instance.Image == null)
+            if (imageLanguage.Image == null)
             {
                 return;
             }
 
-            string path = $"{__instance.path}/{__instance.spritename}_{GameConfig.Language}.png";
+            string path = $"{imageLanguage.path}/{imageLanguage.spritename}_{GameConfig.Language}.png";
             var resourceRedirector = ResourceRedirectManager.GetInstance();
             if (!resourceRedirector.ExistsRedirect(path))
             {
@@ -44,8 +34,28 @@ namespace PoW_ModAPI.ResourceRedirection
             Sprite sprite = resourceRedirector.GetRedirectedSprite(path);
             if (sprite != null)
             {
-                __instance.Image.sprite = sprite;
+                imageLanguage.Image.sprite = sprite;
             }
+        }
+    }
+
+    //WGBattleBillBorard calls LoadSprite on the popup templates when a battle starts
+    [HarmonyPatch(typeof(ImageLanguage), "LoadSprite")]
+    public class ImageLanguage_LoadSprite_Hook
+    {
+        public static void Postfix(ImageLanguage __instance)
+        {
+            ImageLanguageRedirector.ApplyRedirect(__instance);
+        }
+    }
+
+    //Every popup copy shown in battle
+    [HarmonyPatch(typeof(ImageLanguage), "Awake")]
+    public class ImageLanguage_Awake_Hook
+    {
+        public static void Postfix(ImageLanguage __instance)
+        {
+            ImageLanguageRedirector.ApplyRedirect(__instance);
         }
     }
 }
