@@ -253,6 +253,8 @@ namespace EnglishPatch.Hooks
     {
         private const float Gap = 8f;
         private const int MinNameSize = 12;
+        //The prefab label is bigger than the skill names (20), 18 keeps it a label next to them
+        private const int LabelSize = 18;
 
         //Where each "Qi Usage" label sits in the prefab, so we always move it from there
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector3> _LabelOrigin = new System.Collections.Generic.Dictionary<RectTransform, Vector3>();
@@ -316,6 +318,7 @@ namespace EnglishPatch.Hooks
                     _LabelOrigin[labelRect] = origin;
                 }
                 labelRect.position = origin;
+                label.fontSize = Mathf.Min(label.fontSize, LabelSize);
 
                 TextUtil.VisibleX(label, out float labelLeft, out float labelRight);
                 float shift = mpLeft - TextUtil.WorldWidth(labelRect, Gap) - labelRight;
