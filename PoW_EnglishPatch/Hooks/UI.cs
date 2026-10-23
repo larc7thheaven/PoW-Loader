@@ -40,22 +40,63 @@ namespace EnglishPatch.Hooks
             }
 
             name = name.Trim();
-            foreach (string installed in Font.GetOSInstalledFontNames())
+            string[] installedFonts = Font.GetOSInstalledFontNames();
+
+            //The exact name first, then the same name written with other spaces or capitals ("EdoSZ" for "Edo SZ")
+            string match = null;
+            foreach (string installed in installedFonts)
             {
                 if (installed.Equals(name, System.StringComparison.OrdinalIgnoreCase))
                 {
-                    //Arial behind it for any character the chosen font does not have
-                    Font font = Font.CreateDynamicFontFromOSFont(new[] { installed, "Arial" }, 20);
-                    if (font != null)
+                    match = installed;
+                    break;
+                }
+            }
+            if (match == null)
+            {
+                foreach (string installed in installedFonts)
+                {
+                    if (Simplified(installed) == Simplified(name))
                     {
-                        Debug.Log("[EnglishPatch] Using the font " + installed);
-                        return font;
+                        match = installed;
+                        break;
                     }
                 }
             }
 
-            Debug.LogWarning("[EnglishPatch] The font '" + name + "' is not installed on this PC, using Arial instead");
+            if (match != null)
+            {
+                //Arial behind it for any character the chosen font does not have
+                Font font = Font.CreateDynamicFontFromOSFont(new[] { match, "Arial" }, 20);
+                if (font != null)
+                {
+                    Debug.Log("[EnglishPatch] Using the font " + match);
+                    return font;
+                }
+            }
+
+            //Helping to find the right name: the installed fonts that share the start of the name
+            string start = Simplified(name).Substring(0, Mathf.Min(3, Simplified(name).Length));
+            var similar = new System.Collections.Generic.List<string>();
+            foreach (string installed in installedFonts)
+            {
+                if (start.Length > 0 && Simplified(installed).Contains(start))
+                {
+                    similar.Add(installed);
+                }
+            }
+            if (similar.Count > 0)
+            {
+                Debug.LogWarning("[EnglishPatch] Installed fonts with a similar name: " + string.Join(", ", similar.ToArray()));
+            }
+            Debug.LogWarning("[EnglishPatch] The font '" + name + "' is not installed on this PC (or only for one Windows user), using Arial instead");
             return arial;
+        }
+
+        //Lower case, without spaces, dashes and underscores
+        private static string Simplified(string fontName)
+        {
+            return fontName.Replace(" ", "").Replace("-", "").Replace("_", "").ToLowerInvariant();
         }
 
         private static readonly AccessTools.FieldRef<WGText, Text> _WGTextText = AccessTools.FieldRefAccess<WGText, Text>("text");
