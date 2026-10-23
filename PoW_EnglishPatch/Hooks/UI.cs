@@ -595,6 +595,8 @@ namespace EnglishPatch.Hooks
         private const int MinSize = 14;
         //The "Info" and "Effect" titles are 25 in the prefab
         private const int MedicineTitleSize = 20;
+        //What the Effect box gives up for Info on the Medicine tab: it keeps room for three lines of size 20
+        private const float MedicineEffectShrink = 38f;
         //Four more lines of size 20 than the two the box was made for
         private const float ItemsExtraHeight = 92f;
 
@@ -603,7 +605,7 @@ namespace EnglishPatch.Hooks
             if (TextUtil.HasParent<UIEquip>(__instance))
             {
                 //The Info box always reaches down to the bottom of the Effect box next to it
-                InfoBox.Grow(TextUtil.TextOf(___description), float.MaxValue, MinSize, null);
+                InfoBox.Grow(TextUtil.TextOf(___description), float.MaxValue, MinSize);
                 TextUtil.ShrinkToHeight(TextUtil.TextOf(___effectDescription), MinSize);
             }
             else if (TextUtil.HasParent<UIFormInventory>(__instance))
@@ -612,7 +614,7 @@ namespace EnglishPatch.Hooks
                 if (effect == null)
                 {
                     //Items tab: every item gets the same box, with room for six lines, only longer texts make it bigger
-                    InfoBox.Grow(TextUtil.TextOf(___description), ItemsExtraHeight, MinSize, null);
+                    InfoBox.Grow(TextUtil.TextOf(___description), ItemsExtraHeight, MinSize);
                 }
                 else
                 {
@@ -621,7 +623,7 @@ namespace EnglishPatch.Hooks
                     Text info = TextUtil.TextOf(___description);
                     SetTitleSize(info, MedicineTitleSize);
                     SetTitleSize(effect, MedicineTitleSize);
-                    InfoBox.Grow(info, 0f, MinSize, effect);
+                    InfoBox.Split(info, effect, MedicineEffectShrink, MinSize);
                 }
             }
 
@@ -645,19 +647,14 @@ namespace EnglishPatch.Hooks
      * The item Info box is a background image with the text stretched inside it, sized for two lines of Chinese.
      * The box keeps its top and grows down: by at least minGrow (so it does not change size from item to item),
      * and more when the text needs it, but never past the bottom of the panel it sits in.
-     * With a part below it (the Effect box on the Medicine tab), that part moves down into the free room at the
-     * bottom of the panel and gives up its empty space, so the Info box can take that room.
      * A text that still does not fit shrinks (never below minSize). The text always starts at the top of the box.
      */
     public static class InfoBox
     {
-        //Room kept between a moved part and the text inside it
-        private const float Padding = 6f;
-
         //Size and position each box has in the prefab, so we always change it from there
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2[]> _Original = new System.Collections.Generic.Dictionary<RectTransform, Vector2[]>();
 
-        public static void Grow(Text text, float minGrow, int minSize, Text below)
+        public static void Grow(Text text, float minGrow, int minSize)
         {
             RectTransform box = text != null ? text.transform.parent as RectTransform : null;
             RectTransform panel = box != null ? box.parent as RectTransform : null;
@@ -665,14 +662,8 @@ namespace EnglishPatch.Hooks
             {
                 return;
             }
-            RectTransform belowBox = below != null ? below.transform.parent as RectTransform : null;
-            if (belowBox != null && belowBox.parent != panel)
-            {
-                belowBox = null;
-            }
 
             Restore(box);
-            Restore(belowBox);
             if (string.IsNullOrEmpty(text.text))
             {
                 return;
@@ -687,33 +678,47 @@ namespace EnglishPatch.Hooks
                 return;
             }
 
-            float room;
-            float drop = 0f;
-            float slack = 0f;
-            if (belowBox == null)
-            {
-                room = Mathf.Max(0f, Bottom(box, panel) - panel.rect.yMin);
-            }
-            else
-            {
-                //The part below can go down to the bottom of the panel, and lose what its own text does not use
-                drop = Mathf.Max(0f, Bottom(belowBox, panel) - panel.rect.yMin);
-                below.horizontalOverflow = HorizontalWrapMode.Wrap;
-                slack = Mathf.Max(0f, below.rectTransform.rect.height - below.preferredHeight - Padding);
-                room = drop + slack;
-            }
-
+            float room = Mathf.Max(0f, Bottom(box, panel) - panel.rect.yMin);
             float grow = Mathf.Min(wanted, room);
             MoveEdges(box, 0f, grow);
-            if (belowBox != null)
-            {
-                float moved = Mathf.Min(grow, drop);
-                MoveEdges(belowBox, grow, moved);
-            }
 
             if (missing > grow)
             {
                 TextUtil.ShrinkToHeight(text, minSize);
+            }
+        }
+
+        /*
+         * Two boxes above each other (Info and Effect on the Medicine tab), laid out the same for every item:
+         * the lower box moves down to the bottom of the panel and gives up belowShrink of its height, the upper box
+         * grows down into all of that room. Both texts start at the top of their box and shrink only when they do not fit.
+         */
+        public static void Split(Text text, Text below, float belowShrink, int minSize)
+        {
+            RectTransform box = text != null ? text.transform.parent as RectTransform : null;
+            RectTransform panel = box != null ? box.parent as RectTransform : null;
+            RectTransform belowBox = below != null ? below.transform.parent as RectTransform : null;
+            if (panel == null || belowBox == null || belowBox.parent != panel)
+            {
+                return;
+            }
+
+            Restore(box);
+            Restore(belowBox);
+
+            float drop = Mathf.Max(0f, Bottom(belowBox, panel) - panel.rect.yMin);
+            float grow = drop + belowShrink;
+            MoveEdges(box, 0f, grow);
+            MoveEdges(belowBox, grow, drop);
+
+            foreach (Text t in new[] { text, below })
+            {
+                t.alignment = (TextAnchor)((int)t.alignment % 3);
+                t.horizontalOverflow = HorizontalWrapMode.Wrap;
+                if (t.preferredHeight > t.rectTransform.rect.height)
+                {
+                    TextUtil.ShrinkToHeight(t, minSize);
+                }
             }
         }
 
