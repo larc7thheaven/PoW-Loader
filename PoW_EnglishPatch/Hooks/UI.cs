@@ -142,15 +142,34 @@ namespace EnglishPatch.Hooks
          */
         public static string Justified(Text text, string content)
         {
-            if (text == null || text.font == null || string.IsNullOrEmpty(content) || content.IndexOf('<') >= 0 || (int)text.alignment % 3 != 0)
+            if (text == null || text.font == null || string.IsNullOrEmpty(content) || (int)text.alignment % 3 != 0)
             {
                 return content;
             }
 
+            //Color tags do not change the width of the text, so the lines are worked out without them and they are put back
+            //where they were. Any other tag (size, bold...) changes the width, those texts are left alone.
+            var tags = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<int, string>>();
+            var plain = new StringBuilder();
+            int from = 0;
+            foreach (System.Text.RegularExpressions.Match tag in _ColorTag.Matches(content))
+            {
+                plain.Append(content, from, tag.Index - from);
+                tags.Add(new System.Collections.Generic.KeyValuePair<int, string>(plain.Length, tag.Value));
+                from = tag.Index + tag.Length;
+            }
+            plain.Append(content, from, content.Length - from);
+            if (plain.ToString().IndexOf('<') >= 0)
+            {
+                return content;
+            }
+            string original = content;
+            content = plain.ToString();
+
             float width = text.rectTransform.rect.width;
             if (width <= 0f)
             {
-                return content;
+                return original;
             }
 
             content = content.Replace('\u00A0', ' ');
@@ -171,7 +190,7 @@ namespace EnglishPatch.Hooks
             float spaceWidth = (generator.GetPreferredWidth("x x", oneLine) - pair) / scale;
             if (spaceWidth <= 0f)
             {
-                return content;
+                return original;
             }
 
             //Glyph widths are rounded to whole pixels, so the width of a space at every smaller size is measured instead of assumed
@@ -182,6 +201,7 @@ namespace EnglishPatch.Hooks
             }
 
             var result = new StringBuilder();
+            int nextTag = 0;
             for (int i = 0; i < lines.Count; i++)
             {
                 int start = lines[i].startCharIdx;
@@ -190,9 +210,19 @@ namespace EnglishPatch.Hooks
                 {
                     break;
                 }
-                string line = content.Substring(start, Mathf.Max(0, end - start));
-                bool paragraphEnd = i + 1 >= lines.Count || line.EndsWith("\n");
-                line = line.Trim(' ', '\n', '\r');
+                end = Mathf.Min(Mathf.Max(start, end), content.Length);
+                bool paragraphEnd = i + 1 >= lines.Count || end == start || content[end - 1] == '\n';
+
+                //The line without the spaces and line break around it
+                while (start < end && content[start] == ' ')
+                {
+                    start++;
+                }
+                while (end > start && (content[end - 1] == ' ' || content[end - 1] == '\n' || content[end - 1] == '\r'))
+                {
+                    end--;
+                }
+                string line = content.Substring(start, end - start);
 
                 if (i > 0)
                 {
@@ -209,20 +239,23 @@ namespace EnglishPatch.Hooks
                 }
 
                 float extra = width - generator.GetPreferredWidth(line, oneLine) / scale - 0.5f;
-                if (paragraphEnd || gaps == 0 || extra <= 0f)
-                {
-                    result.Append(line);
-                    continue;
-                }
+                bool justify = !paragraphEnd && gaps > 0 && extra > 0f;
 
                 //Spreading the extra width over the spaces, keeping track of the rounding so the line still ends at the edge
-                float perGap = extra / gaps;
+                float perGap = justify ? extra / gaps : 0f;
                 float added = 0f;
                 int gap = 0;
-                foreach (char c in line)
+                for (int c = start; c < end; c++)
                 {
-                    result.Append(c);
-                    if (c != ' ')
+                    //The color tags that were in front of this character
+                    while (nextTag < tags.Count && tags[nextTag].Key <= c)
+                    {
+                        result.Append(tags[nextTag].Value);
+                        nextTag++;
+                    }
+
+                    result.Append(content[c]);
+                    if (!justify || content[c] != ' ')
                     {
                         continue;
                     }
@@ -250,8 +283,16 @@ namespace EnglishPatch.Hooks
                     }
                 }
             }
-            return result.ToString();
+            for (; nextTag < tags.Count; nextTag++)
+            {
+                result.Append(tags[nextTag].Value);
+            }
+
+            //Nothing to justify (a single line, or only paragraph ends), the text stays as it was
+            return lines.Count < 2 ? original : result.ToString();
         }
+
+        private static readonly System.Text.RegularExpressions.Regex _ColorTag = new System.Text.RegularExpressions.Regex("<color=[^>]*>|</color>");
 
         //Justifies a text in place, see Justified
         public static void Justify(Text text)
@@ -513,6 +554,7 @@ namespace EnglishPatch.Hooks
     }
 
     //Gear tab of the character screen: the item Info and Effect texts shrink (down to 14) to fit their boxes.
+    //Items tab (Gift, Books, Quest): nothing is below the Info box, so the box grows downwards to fit the text instead.
     //WGPropsIntroduction is also used by the shop, forge, elixirs and battle status, those keep their size.
     [HarmonyPatch(typeof(WGPropsIntroduction), "UpdateWidget")]
     public class WGPropsIntroduction_UpdateWidget_Hook
@@ -526,9 +568,66 @@ namespace EnglishPatch.Hooks
                 TextUtil.ShrinkToHeight(TextUtil.TextOf(___description), MinSize);
                 TextUtil.ShrinkToHeight(TextUtil.TextOf(___effectDescription), MinSize);
             }
+            else if (___effectDescription == null && TextUtil.HasParent<UIFormInventory>(__instance))
+            {
+                InfoBox.GrowDown(TextUtil.TextOf(___description), MinSize);
+            }
 
             //The item Info is justified everywhere
             TextUtil.Justify(TextUtil.TextOf(___description));
+        }
+    }
+
+    /*
+     * The Info box on the Items tab is a background image with the text stretched inside it. It is sized for two lines,
+     * longer English texts ran out of it (and over the "Info" title, the text is centered vertically).
+     * The item name is right above the box, so the box keeps its top and grows down, at most to the bottom of the panel.
+     * A text that does not even fit then shrinks (never below minSize).
+     */
+    public static class InfoBox
+    {
+        //Size and position each box has in the prefab, so we always grow it from there
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2[]> _Original = new System.Collections.Generic.Dictionary<RectTransform, Vector2[]>();
+
+        public static void GrowDown(Text text, int minSize)
+        {
+            RectTransform box = text != null ? text.transform.parent as RectTransform : null;
+            RectTransform panel = box != null ? box.parent as RectTransform : null;
+            if (panel == null || box.GetComponent<Image>() == null || string.IsNullOrEmpty(text.text))
+            {
+                return;
+            }
+
+            if (!_Original.TryGetValue(box, out Vector2[] original))
+            {
+                original = new[] { box.sizeDelta, box.anchoredPosition };
+                _Original[box] = original;
+            }
+            box.sizeDelta = original[0];
+            box.anchoredPosition = original[1];
+
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            float missing = text.preferredHeight - text.rectTransform.rect.height;
+            if (missing <= 0f)
+            {
+                return;
+            }
+
+            //Lowest point the box may reach: the bottom of the panel it sits in
+            Vector3[] corners = new Vector3[4];
+            box.GetLocalCorners(corners);
+            float boxBottom = panel.InverseTransformPoint(box.TransformPoint(corners[0])).y;
+            float room = Mathf.Max(0f, boxBottom - panel.rect.yMin);
+
+            float grow = Mathf.Min(missing, room);
+            box.sizeDelta = original[0] + new Vector2(0f, grow);
+            //Keeping the top where it is, whatever the pivot
+            box.anchoredPosition = original[1] - new Vector2(0f, grow * (1f - box.pivot.y));
+
+            if (missing > room)
+            {
+                TextUtil.ShrinkToHeight(text, minSize);
+            }
         }
     }
 
