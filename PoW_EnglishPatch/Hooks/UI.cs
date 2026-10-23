@@ -214,6 +214,19 @@ namespace EnglishPatch.Hooks
             //Debug.Log("UIRelationship_UpdateRelationship_Hook");
             ___community_name.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
             ___community_introduction.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+
+            //The game turns every space into a non-breaking space (StringTool.Replace), so English lines broke in the middle of words. Turning them back allows wrapping at spaces.
+            ___community_introduction.text = ___community_introduction.text.Replace(' ', ' ');
+
+            //Longer bios got cut off at the bottom of the Info box, so we let the text shrink until it fits.
+            if (!___community_introduction.resizeTextForBestFit)
+            {
+                ___community_introduction.resizeTextMaxSize = ___community_introduction.fontSize;
+                ___community_introduction.resizeTextMinSize = 12;
+                ___community_introduction.resizeTextForBestFit = true;
+            }
+            ___community_introduction.horizontalOverflow = HorizontalWrapMode.Wrap;
+            ___community_introduction.verticalOverflow = VerticalWrapMode.Truncate;
         }
     }
 
