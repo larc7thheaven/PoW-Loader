@@ -40,6 +40,7 @@ namespace EnglishPatch.Hooks
             }
 
             name = name.Trim();
+            string simplifiedName = Simplified(name);
             string[] installedFonts = Font.GetOSInstalledFontNames();
 
             //The exact name first, then the same name written with other spaces or capitals ("EdoSZ" for "Edo SZ")
@@ -56,7 +57,7 @@ namespace EnglishPatch.Hooks
             {
                 foreach (string installed in installedFonts)
                 {
-                    if (Simplified(installed) == Simplified(name))
+                    if (Simplified(installed) == simplifiedName)
                     {
                         match = installed;
                         break;
@@ -76,7 +77,7 @@ namespace EnglishPatch.Hooks
             }
 
             //Helping to find the right name: the installed fonts that share the start of the name
-            string start = Simplified(name).Substring(0, Mathf.Min(3, Simplified(name).Length));
+            string start = simplifiedName.Substring(0, Mathf.Min(3, simplifiedName.Length));
             var similar = new System.Collections.Generic.List<string>();
             foreach (string installed in installedFonts)
             {
@@ -207,7 +208,7 @@ namespace EnglishPatch.Hooks
          * then widen the spaces of every line until it reaches the right edge. Extra space finer than one space is a space
          * with a smaller <size>, smaller sizes do not make the line taller. The last line of a paragraph stays left aligned.
          * The lines are joined with line breaks and the text no longer wraps by itself, so Unity keeps our lines as they are.
-         * Texts with rich text tags or not aligned to the left are left alone.
+         * Color tags are kept, texts with other rich text tags (they change the width) or not aligned to the left are left alone.
          */
         public static string Justified(Text text, string content)
         {
@@ -505,8 +506,8 @@ namespace EnglishPatch.Hooks
     [HarmonyPatch(typeof(WGStringTable), "UpdateString")]
     public class WGStringTable_UpdateString_Hook
     {
-        //Labels whose English text is wider than the box behind them, shrunk to the width of their box
-        //Label id and the room to keep free at both ends together, for labels on rounded backgrounds
+        //Labels whose English text is wider than the box behind them, shrunk to the width of their box.
+        //With each label id the room to keep free at both ends together, for labels on rounded backgrounds.
         private static readonly System.Collections.Generic.Dictionary<string, float> _FitWidth = new System.Collections.Generic.Dictionary<string, float>
         {
             //Relationship screen: Friendship bar label, Send Gifts and Outings buttons
@@ -609,7 +610,7 @@ namespace EnglishPatch.Hooks
 
         public static void Prefix(WGPaoMaDengText __instance, ref string msg, Text ___pmdText, Image ___mask)
         {
-            //The original measures the text right after setting it, so the font has to be Arial before that
+            //The original measures the text right after setting it, so the English font has to be set before that
             ___pmdText.font = TextUtil.UIFont;
 
             if (msg == null || !FitToBox.Contains(__instance) || __instance.direction != WGPaoMaDengText.Direction.Vertical || ___mask == null)
@@ -655,9 +656,13 @@ namespace EnglishPatch.Hooks
         }
     }
 
-    //Gear tab of the character screen: the item Info and Effect texts shrink (down to 14) to fit their boxes.
-    //Items tab (Gift, Books, Quest): nothing is below the Info box, so the box grows downwards to fit the text instead.
-    //WGPropsIntroduction is also used by the shop, forge, elixirs and battle status, those keep their size.
+    /*
+     * The item Info box (and Effect box) on the character screen:
+     * Gear tab: the Info box reaches down to the bottom of the Effect box next to it, the texts shrink (down to 14) if they still do not fit.
+     * Items tab (Gift, Books, Quest): nothing is below the Info box, every item gets the same taller box (see InfoBox.Grow).
+     * Medicine tab: the Effect part moves down and gives up some height, the Info box takes that room (see InfoBox.Split).
+     * WGPropsIntroduction is also used by the shop, forge, elixirs and battle status, there only the Info text is justified.
+     */
     [HarmonyPatch(typeof(WGPropsIntroduction), "UpdateWidget")]
     public class WGPropsIntroduction_UpdateWidget_Hook
     {
@@ -1088,9 +1093,9 @@ namespace EnglishPatch.Hooks
     {
         public static void Postfix(ref Text ___community_name, ref Text ___community_introduction, WGFavorability[] ___community_fav_level)
         {
+            //Debug.Log("UIRelationship_UpdateRelationship_Hook");
             RelationshipAbilities.Fit(___community_fav_level);
 
-            //Debug.Log("UIRelationship_UpdateRelationship_Hook");
             ___community_name.font = TextUtil.UIFont;
             ___community_introduction.font = TextUtil.UIFont;
 
@@ -1159,6 +1164,8 @@ namespace EnglishPatch.Hooks
         private const float Margin = 12f;
         private const int MinSize = 14;
 
+        private static readonly AccessTools.FieldRef<WGFavorability, Text> _Content = AccessTools.FieldRefAccess<WGFavorability, Text>("content");
+
         //Width, position and font size each text has in the prefab
         private static readonly System.Collections.Generic.Dictionary<Text, float[]> _Original = new System.Collections.Generic.Dictionary<Text, float[]>();
 
@@ -1172,7 +1179,7 @@ namespace EnglishPatch.Hooks
             var texts = new System.Collections.Generic.List<Text>();
             foreach (WGFavorability level in levels)
             {
-                Text content = level != null ? Traverse.Create(level).Field("content").GetValue<Text>() : null;
+                Text content = level != null ? _Content(level) : null;
                 RectTransform bar = content != null ? content.transform.parent as RectTransform : null;
                 if (bar == null)
                 {
@@ -1225,7 +1232,8 @@ namespace EnglishPatch.Hooks
         {
             foreach (Text text in texts)
             {
-                if (!text.gameObject.activeInHierarchy || string.IsNullOrEmpty(text.text))
+                //Locked levels hide their text
+                if (!text.gameObject.activeSelf || string.IsNullOrEmpty(text.text))
                 {
                     continue;
                 }
