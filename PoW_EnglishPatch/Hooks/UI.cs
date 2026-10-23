@@ -447,6 +447,16 @@ namespace EnglishPatch.Hooks
         };
         private const int MinTitleSize = 14;
 
+        //Labels a little smaller than the size the game gives them, and by how much
+        private static readonly System.Collections.Generic.Dictionary<string, int> _Smaller = new System.Collections.Generic.Dictionary<string, int>
+        {
+            //"Select Gear" on the Gear tab
+            { "Equip_Select", 2 },
+        };
+
+        //Size the game gave each of those labels, they may be updated more than once
+        private static readonly System.Collections.Generic.Dictionary<Text, int> _OriginalSize = new System.Collections.Generic.Dictionary<Text, int>();
+
         public static void Postfix(WGStringTable __instance, string ___id)
         {
             //Debug.Log("WGStringTable_UpdateString_Hook");
@@ -457,6 +467,16 @@ namespace EnglishPatch.Hooks
             if (_FitWidth.TryGetValue(___id, out float margin))
             {
                 TextUtil.ShrinkToWidth(text, MinTitleSize, margin);
+            }
+
+            if (_Smaller.TryGetValue(___id, out int smaller))
+            {
+                if (!_OriginalSize.TryGetValue(text, out int originalSize))
+                {
+                    originalSize = text.fontSize;
+                    _OriginalSize[text] = originalSize;
+                }
+                text.fontSize = originalSize - smaller;
             }
         }
     }
@@ -573,6 +593,8 @@ namespace EnglishPatch.Hooks
     public class WGPropsIntroduction_UpdateWidget_Hook
     {
         private const int MinSize = 14;
+        //The texts are set to 20 every time, on the Medicine tab they are a little smaller
+        private const int MedicineSize = 18;
         //Four more lines of size 20 than the two the box was made for
         private const float ItemsExtraHeight = 92f;
 
@@ -594,8 +616,15 @@ namespace EnglishPatch.Hooks
                 }
                 else
                 {
-                    //Medicine tab: the Effect part below moves down (and loses its empty space) to make room
-                    InfoBox.Grow(TextUtil.TextOf(___description), 0f, MinSize, effect);
+                    //Medicine tab: Info and Effect are a little smaller, and the Effect part below moves down
+                    //(and loses its empty space) to make room for Info
+                    Text info = TextUtil.TextOf(___description);
+                    if (info != null)
+                    {
+                        info.fontSize = MedicineSize;
+                    }
+                    effect.fontSize = MedicineSize;
+                    InfoBox.Grow(info, 0f, MinSize, effect);
                 }
             }
 
