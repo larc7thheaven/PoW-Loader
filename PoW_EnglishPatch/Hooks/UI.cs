@@ -670,9 +670,9 @@ namespace EnglishPatch.Hooks
         //The "Info" and "Effect" titles are 25 in the prefab
         private const int MedicineTitleSize = 20;
         //What the Effect box gives up for Info on the Medicine tab: it keeps room for three lines of size 20
-        private const float MedicineEffectShrink = 30f;
-        //Four more lines of size 20 than the two the box was made for
-        private const float ItemsExtraHeight = 92f;
+        private const float MedicineEffectShrink = 22f;
+        //Four more lines of size 20 (23 each) than the two the box was made for, plus the gap kept below the last line
+        private const float ItemsExtraHeight = 100f;
 
         public static void Postfix(WGPropsIntroduction __instance, WGText ___description, WGText ___effectDescription)
         {
@@ -814,23 +814,24 @@ namespace EnglishPatch.Hooks
             rect.offsetMax = new Vector2(-RightMargin, rect.offsetMax.y);
         }
 
-        //Gap between the top of the box and the first line, the prefab leaves 9, which looked cramped
-        private const float TopPadding = 8f;
+        //Extra gap between the box edges and the text, at the top and the same at the bottom. The prefab leaves 9, which looked cramped.
+        private const float Padding = 8f;
 
-        //Top edge each text area has in the prefab
-        private static readonly System.Collections.Generic.Dictionary<RectTransform, float> _OriginalTop = new System.Collections.Generic.Dictionary<RectTransform, float>();
+        //Top and bottom edge each text area has in the prefab
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _OriginalEdges = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
 
-        //The text starts at the top of its box, a small gap below the edge
+        //The text starts at the top of its box, with the same small gap above the first line and below the last one
         private static void TopAlign(Text text)
         {
             text.alignment = (TextAnchor)((int)text.alignment % 3);
             RectTransform rect = text.rectTransform;
-            if (!_OriginalTop.TryGetValue(rect, out float top))
+            if (!_OriginalEdges.TryGetValue(rect, out Vector2 edges))
             {
-                top = rect.offsetMax.y;
-                _OriginalTop[rect] = top;
+                edges = new Vector2(rect.offsetMax.y, rect.offsetMin.y);
+                _OriginalEdges[rect] = edges;
             }
-            rect.offsetMax = new Vector2(rect.offsetMax.x, top - TopPadding);
+            rect.offsetMax = new Vector2(rect.offsetMax.x, edges.x - Padding);
+            rect.offsetMin = new Vector2(rect.offsetMin.x, edges.y + Padding);
         }
 
         private static void Restore(RectTransform box)
