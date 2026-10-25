@@ -876,13 +876,14 @@ namespace EnglishPatch.Hooks
         }
 
         /*
-         * The gear selection popup has an "Info", "Criteria" and "Effect" heading, each carrying its band (BG) and text.
-         * An Info text longer than its band (3 lines) ran over the "Criteria" heading. The band now grows by what the text
-         * needs, and the Criteria and Effect parts move down by as much, into the empty room at the bottom of the popup.
-         * Only a very long text also shrinks. The popup is only changed when it has exactly that structure.
+         * The gear selection popup: the headings and the light bands behind the texts are part of the popup's art and
+         * cannot move. The Info text area (75 high, 3 lines) sits inside its band, an Info text with more lines ran over
+         * the "Criteria" heading. Such a text may now use the band down to just above that heading, and shrinks only
+         * as much as it needs to fit. Texts of up to 3 lines are not changed. Only done when the popup has exactly the
+         * Description, ConditionDescription and EffectDescription parts.
          */
-        //How far the parts below the Info band may move down, the popup has about this much empty room at the bottom
-        private const float PopupMaxPush = 80f;
+        //How much further down the Info band goes than the text area, before the "Criteria" heading starts
+        private const float PopupBandBelowText = 5f;
 
         public static void GearPopup(Text info, Text condition, Text effect, int minSize)
         {
@@ -895,13 +896,8 @@ namespace EnglishPatch.Hooks
             {
                 return;
             }
-            RectTransform infoBand = infoHeader.Find("BG") as RectTransform;
 
             Restore(info.rectTransform);
-            Restore(infoBand);
-            Restore(conditionHeader);
-            Restore(effectHeader);
-
             if (string.IsNullOrEmpty(info.text))
             {
                 return;
@@ -909,26 +905,13 @@ namespace EnglishPatch.Hooks
 
             NormalSpaces(info);
             info.horizontalOverflow = HorizontalWrapMode.Wrap;
-            float missing = info.preferredHeight - info.rectTransform.rect.height;
-            if (missing <= 0f)
+            if (info.preferredHeight <= info.rectTransform.rect.height)
             {
                 return;
             }
 
-            //The Info text and its band grow down, the Criteria and Effect parts move down by as much
-            float push = Mathf.Min(missing, PopupMaxPush);
-            MoveEdges(info.rectTransform, 0f, push);
-            if (infoBand != null)
-            {
-                MoveEdges(infoBand, 0f, push);
-            }
-            conditionHeader.anchoredPosition -= new Vector2(0f, push);
-            effectHeader.anchoredPosition -= new Vector2(0f, push);
-
-            if (missing > push)
-            {
-                TextUtil.ShrinkToHeight(info, minSize);
-            }
+            MoveEdges(info.rectTransform, 0f, PopupBandBelowText);
+            TextUtil.ShrinkToHeight(info, minSize);
         }
 
         private static void Restore(RectTransform box)
