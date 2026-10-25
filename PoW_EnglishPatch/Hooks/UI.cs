@@ -1217,8 +1217,9 @@ namespace EnglishPatch.Hooks
         //The small scroll in front of "Lv" touched names of two lines, it is drawn a little smaller
         private const float LevelIconScale = 0.75f;
 
-        //Size each scroll has in the prefab
+        //Size each scroll has in the prefab, and size and place of what sits inside it ("Lv 10" is a child of the scroll)
         private static readonly System.Collections.Generic.Dictionary<Transform, Vector3> _OriginalIconScale = new System.Collections.Generic.Dictionary<Transform, Vector3>();
+        private static readonly System.Collections.Generic.Dictionary<Transform, Vector3[]> _OriginalChild = new System.Collections.Generic.Dictionary<Transform, Vector3[]>();
 
         //Width and position each name area has in the prefab
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2[]> _Original = new System.Collections.Generic.Dictionary<RectTransform, Vector2[]>();
@@ -1240,6 +1241,18 @@ namespace EnglishPatch.Hooks
                     _OriginalIconScale[levelIcon] = scale;
                 }
                 levelIcon.localScale = scale * LevelIconScale;
+
+                //What sits inside the scroll gets the opposite, so "Lv 10" keeps its size and place
+                foreach (Transform child in levelIcon)
+                {
+                    if (!_OriginalChild.TryGetValue(child, out Vector3[] inside))
+                    {
+                        inside = new[] { child.localScale, child.localPosition };
+                        _OriginalChild[child] = inside;
+                    }
+                    child.localScale = inside[0] / LevelIconScale;
+                    child.localPosition = inside[1] / LevelIconScale;
+                }
             }
 
             RectTransform rect = name.rectTransform;
