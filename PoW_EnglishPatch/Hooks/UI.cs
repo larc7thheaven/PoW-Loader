@@ -1207,20 +1207,23 @@ namespace EnglishPatch.Hooks
      * The skill and inner art selection popup (Skills tab): the name area of each row was sized for a few Chinese
      * characters, English names wrapped into two or three lines and ran over the "Lv" below them. The name area is now
      * as wide as "Long Howl from Heavenly Gate" plus a little, its left end stays where it is, longer names take two lines.
-     * The names are one size smaller than the other texts.
+     * The small scroll in front of "Lv" is drawn a little smaller, so it does not touch names of two lines.
      * Other lists with the same button keep their layout, some of them show a "New" badge on the right.
      */
     [HarmonyPatch(typeof(WGScrollBtn), "UpdateWidget")]
     public class WGScrollBtn_UpdateWidget_Hook
     {
         private const float NameWidth = 290f;
-        //The texts are set to 20 every time, the skill names here are a little smaller
-        private const int NameSize = 19;
+        //The small scroll in front of "Lv" touched names of two lines, it is drawn a little smaller
+        private const float LevelIconScale = 0.75f;
+
+        //Size each scroll has in the prefab
+        private static readonly System.Collections.Generic.Dictionary<Transform, Vector3> _OriginalIconScale = new System.Collections.Generic.Dictionary<Transform, Vector3>();
 
         //Width and position each name area has in the prefab
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2[]> _Original = new System.Collections.Generic.Dictionary<RectTransform, Vector2[]>();
 
-        public static void Postfix(WGScrollBtn __instance, WGText ___itemName)
+        public static void Postfix(WGScrollBtn __instance, WGText ___itemName, WGImage ___remarkIcon)
         {
             Text name = TextUtil.TextOf(___itemName);
             if (name == null || !(TextUtil.OwningForm(__instance) is UIMartialArtsWindow))
@@ -1228,7 +1231,16 @@ namespace EnglishPatch.Hooks
                 return;
             }
 
-            name.fontSize = NameSize;
+            Transform levelIcon = ___remarkIcon != null ? ___remarkIcon.transform : null;
+            if (levelIcon != null)
+            {
+                if (!_OriginalIconScale.TryGetValue(levelIcon, out Vector3 scale))
+                {
+                    scale = levelIcon.localScale;
+                    _OriginalIconScale[levelIcon] = scale;
+                }
+                levelIcon.localScale = scale * LevelIconScale;
+            }
 
             RectTransform rect = name.rectTransform;
             if (!_Original.TryGetValue(rect, out Vector2[] original))
