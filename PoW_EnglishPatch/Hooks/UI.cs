@@ -958,9 +958,87 @@ namespace EnglishPatch.Hooks
         }
 
         //The book description under the title is justified
-        public static void Postfix(WGText ___description)
+        public static void Postfix(WGSkillsIntroduction __instance, WGText ___description, WGText ___name, WGText ___requestMP,
+            WGText ___hurt, WGText ___range, WGText ___area, WGText ___cD, WGPaoMaDengText ___effectDescription)
         {
             TextUtil.Justify(TextUtil.TextOf(___description));
+
+            if (TextUtil.OwningForm(__instance) is UIMartialArtsWindow)
+            {
+                RaiseStats(__instance, new[] { ___hurt, ___range, ___area, ___cD },
+                    new Component[] { ___description, ___name, ___requestMP, ___effectDescription });
+            }
+        }
+
+        /*
+         * Skill selection popup: the Damage, Attack Distance, Attack Area and Cooldown Time rows sat low in their box
+         * (about 22 above them and 13 below). The rows, names and numbers, move up a little. Only done when the part
+         * holding the four numbers holds nothing else of the panel.
+         */
+        private const float StatsRaise = 6f;
+
+        //Where each moved row is in the prefab, and the padding of a layout group holding the rows
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _OriginalRow = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+        private static readonly System.Collections.Generic.Dictionary<LayoutGroup, RectOffset> _OriginalPadding = new System.Collections.Generic.Dictionary<LayoutGroup, RectOffset>();
+
+        private static void RaiseStats(WGSkillsIntroduction widget, WGText[] values, Component[] others)
+        {
+            Transform[] texts = System.Array.ConvertAll(values, v => TextUtil.TextOf(v) != null ? TextUtil.TextOf(v).transform : null);
+            if (System.Array.IndexOf(texts, null) >= 0)
+            {
+                return;
+            }
+
+            //The smallest part of the panel holding all four numbers
+            Transform rows = texts[0].parent;
+            while (rows != null && !System.Array.TrueForAll(texts, t => t.IsChildOf(rows)))
+            {
+                rows = rows.parent;
+            }
+            //Holding only the numbers, it is the numbers column: the labels next to them are one level up
+            if (rows != null && rows.GetComponentsInChildren<Text>(true).Length <= texts.Length)
+            {
+                rows = rows.parent;
+            }
+            if (rows == null || rows == widget.transform || !rows.IsChildOf(widget.transform))
+            {
+                return;
+            }
+            foreach (Component other in others)
+            {
+                if (other != null && other.transform.IsChildOf(rows))
+                {
+                    return;
+                }
+            }
+
+            LayoutGroup layout = rows.GetComponent<LayoutGroup>();
+            if (layout != null)
+            {
+                //The layout places the rows, so it gets less room on top and more below instead
+                if (!_OriginalPadding.TryGetValue(layout, out RectOffset padding))
+                {
+                    padding = new RectOffset(layout.padding.left, layout.padding.right, layout.padding.top, layout.padding.bottom);
+                    _OriginalPadding[layout] = padding;
+                }
+                layout.padding = new RectOffset(padding.left, padding.right, padding.top - (int)StatsRaise, padding.bottom + (int)StatsRaise);
+                return;
+            }
+
+            foreach (Transform child in rows)
+            {
+                RectTransform row = child as RectTransform;
+                if (row == null || child.GetComponentInChildren<Text>(true) == null)
+                {
+                    continue;
+                }
+                if (!_OriginalRow.TryGetValue(row, out Vector2 position))
+                {
+                    position = row.anchoredPosition;
+                    _OriginalRow[row] = position;
+                }
+                row.anchoredPosition = position + new Vector2(0f, StatsRaise);
+            }
         }
     }
 
