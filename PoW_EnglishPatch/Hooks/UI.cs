@@ -408,17 +408,18 @@ namespace EnglishPatch.Hooks
             }
         }
 
-        //Whether the object or one of its parents has the component, also when they are inactive
-        public static bool HasParent<T>(Component component) where T : Component
+        //The screen a widget belongs to: the closest UIForm above it, also when they are hidden
+        public static UIForm OwningForm(Component component)
         {
             for (Transform t = component.transform; t != null; t = t.parent)
             {
-                if (t.GetComponent<T>() != null)
+                UIForm form = t.GetComponent<UIForm>();
+                if (form != null)
                 {
-                    return true;
+                    return form;
                 }
             }
-            return false;
+            return null;
         }
 
         //A width in the local units of a rect, converted to world units
@@ -661,7 +662,8 @@ namespace EnglishPatch.Hooks
      * Gear tab: the Info box reaches down to the bottom of the Effect box next to it, the texts shrink (down to 14) if they still do not fit.
      * Items tab (Gift, Books, Quest): nothing is below the Info box, every item gets the same taller box (see InfoBox.Grow).
      * Medicine tab: the Effect part moves down and gives up some height, the Info box takes that room (see InfoBox.Split).
-     * WGPropsIntroduction is also used by the shop, forge, elixirs and battle status, there only the Info text is justified.
+     * WGPropsIntroduction is also used by popups (gear selection, gifts, battle items), the shop, forge, elixirs and battle status,
+     * there only the Info text is justified.
      */
     [HarmonyPatch(typeof(WGPropsIntroduction), "UpdateWidget")]
     public class WGPropsIntroduction_UpdateWidget_Hook
@@ -676,35 +678,54 @@ namespace EnglishPatch.Hooks
 
         public static void Postfix(WGPropsIntroduction __instance, WGText ___description, WGText ___effectDescription)
         {
-            if (TextUtil.HasParent<UIEquip>(__instance))
+            Text info = TextUtil.TextOf(___description);
+            Text effect = TextUtil.TextOf(___effectDescription);
+
+            //Only the panels of the three character screen tabs are laid out. Popups such as the gear selection, gifts and
+            //battle items use the same widget inside these screens with another layout, they are left as they are.
+            if (IsGearPanel(__instance))
             {
                 //The Info box always reaches down to the bottom of the Effect box next to it
-                InfoBox.SideMargins(TextUtil.TextOf(___description));
-                InfoBox.Grow(TextUtil.TextOf(___description), float.MaxValue, MinSize);
-                TextUtil.ShrinkToHeight(TextUtil.TextOf(___effectDescription), MinSize);
+                InfoBox.SideMargins(info);
+                InfoBox.Grow(info, float.MaxValue, MinSize);
+                TextUtil.ShrinkToHeight(effect, MinSize);
             }
-            else if (TextUtil.HasParent<UIFormInventory>(__instance))
+            else if (IsPanelOf<UIInventory>(__instance) && effect == null)
             {
-                Text effect = TextUtil.TextOf(___effectDescription);
-                if (effect == null)
-                {
-                    //Items tab: every item gets the same box, with room for six lines, only longer texts make it bigger
-                    InfoBox.SideMargins(TextUtil.TextOf(___description));
-                    InfoBox.Grow(TextUtil.TextOf(___description), ItemsExtraHeight, MinSize);
-                }
-                else
-                {
-                    //Medicine tab: the "Info" and "Effect" titles are a little smaller, and the Effect part below moves down
-                    //(and loses its empty space) to make room for Info
-                    Text info = TextUtil.TextOf(___description);
-                    SetTitleSize(info, MedicineTitleSize);
-                    SetTitleSize(effect, MedicineTitleSize);
-                    InfoBox.Split(info, effect, MedicineEffectShrink, MinSize);
-                }
+                //Items tab: every item gets the same box, with room for six lines, only longer texts make it bigger
+                InfoBox.SideMargins(info);
+                InfoBox.Grow(info, ItemsExtraHeight, MinSize);
+            }
+            else if (IsPanelOf<UIMedicine>(__instance) && effect != null)
+            {
+                //Medicine tab: the "Info" and "Effect" titles are a little smaller, and the Effect part below moves down
+                //(and loses its empty space) to make room for Info
+                SetTitleSize(info, MedicineTitleSize);
+                SetTitleSize(effect, MedicineTitleSize);
+                InfoBox.Split(info, effect, MedicineEffectShrink, MinSize);
             }
 
             //The item Info is justified everywhere
-            TextUtil.Justify(TextUtil.TextOf(___description));
+            TextUtil.Justify(info);
+        }
+
+        private static readonly AccessTools.FieldRef<UIEquip, WGPropsIntroduction> _Weapon = AccessTools.FieldRefAccess<UIEquip, WGPropsIntroduction>("weapon");
+        private static readonly AccessTools.FieldRef<UIEquip, WGPropsIntroduction> _Armor = AccessTools.FieldRefAccess<UIEquip, WGPropsIntroduction>("armor");
+        private static readonly AccessTools.FieldRef<UIEquip, WGPropsIntroduction> _Accessories = AccessTools.FieldRefAccess<UIEquip, WGPropsIntroduction>("accessories");
+        private static readonly AccessTools.FieldRef<UIFormInventory, WGPropsIntroduction> _PropsIntroduction = AccessTools.FieldRefAccess<UIFormInventory, WGPropsIntroduction>("propsIntroduction");
+
+        //One of the weapon, armor and accessories panels of the Gear tab
+        private static bool IsGearPanel(WGPropsIntroduction widget)
+        {
+            UIEquip equip = TextUtil.OwningForm(widget) as UIEquip;
+            return equip != null && (_Weapon(equip) == widget || _Armor(equip) == widget || _Accessories(equip) == widget);
+        }
+
+        //The item panel of that inventory screen itself (Items tab: UIInventory, Medicine tab: UIMedicine)
+        private static bool IsPanelOf<T>(WGPropsIntroduction widget) where T : UIFormInventory
+        {
+            T form = TextUtil.OwningForm(widget) as T;
+            return form != null && _PropsIntroduction(form) == widget;
         }
 
         //The title ("Info", "Effect") is the Title child of the box the text sits in
