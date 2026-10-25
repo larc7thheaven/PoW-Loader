@@ -746,6 +746,7 @@ namespace EnglishPatch.Hooks
             }
 
             TopAlign(text);
+            NormalSpaces(text);
             text.horizontalOverflow = HorizontalWrapMode.Wrap;
             float missing = text.preferredHeight - text.rectTransform.rect.height;
             float wanted = Mathf.Max(missing, minGrow);
@@ -790,11 +791,25 @@ namespace EnglishPatch.Hooks
             foreach (Text t in new[] { text, below })
             {
                 TopAlign(t);
+                NormalSpaces(t);
                 t.horizontalOverflow = HorizontalWrapMode.Wrap;
                 if (t.preferredHeight > t.rectTransform.rect.height)
                 {
                     TextUtil.ShrinkToHeight(t, minSize);
                 }
+            }
+        }
+
+        /*
+         * The game turns the spaces into non-breaking spaces (StringTool.Replace). Measured like that, the text breaks in the
+         * middle of words and looks a line shorter than it is once the justifying turns the spaces back, so the last line
+         * ended up below the box. The text is measured with normal spaces instead.
+         */
+        private static void NormalSpaces(Text text)
+        {
+            if (text != null && text.text != null && text.text.IndexOf('\u00A0') >= 0)
+            {
+                text.text = text.text.Replace('\u00A0', ' ');
             }
         }
 
