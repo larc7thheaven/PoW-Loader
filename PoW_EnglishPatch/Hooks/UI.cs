@@ -31,6 +31,24 @@ namespace EnglishPatch.Hooks
             }
         }
 
+        private static Font _CombatFont;
+        private static bool _CombatFontLoaded;
+
+        //Font for the combat texts in the game's own font, chosen in the config file (see EnglishPatch.CombatFontName).
+        //null when the setting is empty, those texts then keep the game's font.
+        public static Font CombatFont
+        {
+            get
+            {
+                if (!_CombatFontLoaded)
+                {
+                    _CombatFontLoaded = true;
+                    _CombatFont = string.IsNullOrEmpty(EnglishPatch.CombatFontName?.Trim()) ? null : LoadFont(EnglishPatch.CombatFontName);
+                }
+                return _CombatFont;
+            }
+        }
+
         private static Font LoadFont(string name)
         {
             Font arial = Resources.GetBuiltinResource<Font>("Arial.ttf");
@@ -108,6 +126,14 @@ namespace EnglishPatch.Hooks
             return wgText == null ? null : _WGTextText(wgText);
         }
 
+        private static readonly AccessTools.FieldRef<WGStringTable, string> _StringTableId = AccessTools.FieldRefAccess<WGStringTable, string>("id");
+
+        //The StringTable id a label of the prefab shows (SecondaryInterface0107...)
+        public static string StringId(WGStringTable label)
+        {
+            return label == null ? null : _StringTableId(label);
+        }
+
         //Horizontal world position of the drawn text (not of its rect), using its one line width and alignment
         public static void VisibleX(Text text, out float left, out float right)
         {
@@ -156,7 +182,8 @@ namespace EnglishPatch.Hooks
 
         //Wraps a text at spaces and shrinks it (never below minSize) until it fits its rect without breaking a word.
         //Unlike best fit it never hides the text, at the minimum size it may overflow a little.
-        public static void ShrinkToBox(Text text, int minSize)
+        //verticalPadding is room kept free above and below the text.
+        public static void ShrinkToBox(Text text, int minSize, float verticalPadding = 0f)
         {
             if (text == null || string.IsNullOrEmpty(text.text))
             {
@@ -176,10 +203,85 @@ namespace EnglishPatch.Hooks
 
             Rect rect = text.rectTransform.rect;
             string[] words = text.text.Split(new[] { ' ', '\n' }, System.StringSplitOptions.RemoveEmptyEntries);
-            while (text.fontSize > minSize && (text.preferredHeight > rect.height || WidestWord(text, words) > rect.width))
+            while (text.fontSize > minSize && (text.preferredHeight > rect.height - 2f * verticalPadding || WidestWord(text, words) > rect.width))
             {
                 text.fontSize--;
             }
+        }
+
+        //Wraps a text at spaces and shrinks it (never below minSize) until it takes at most maxLines lines and no word is wider than its rect.
+        //Shares the original sizes with ShrinkToBox, so RestoreBoxFit gives it back too.
+        public static void ShrinkToLines(Text text, int maxLines, int minSize)
+        {
+            if (text == null || string.IsNullOrEmpty(text.text))
+            {
+                return;
+            }
+
+            if (!_OriginalBoxFitSize.TryGetValue(text, out int originalSize))
+            {
+                originalSize = text.fontSize;
+                _OriginalBoxFitSize[text] = originalSize;
+            }
+            text.fontSize = originalSize;
+            text.resizeTextForBestFit = false;
+            text.text = text.text.Replace('\u00A0', ' ');
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+
+            Rect rect = text.rectTransform.rect;
+            string[] words = text.text.Split(new[] { ' ', '\n' }, System.StringSplitOptions.RemoveEmptyEntries);
+            while (text.fontSize > minSize && (LineCount(text) > maxLines || WidestWord(text, words) > rect.width))
+            {
+                text.fontSize--;
+            }
+        }
+
+        //Only used to count lines, one is enough for all texts. Made on first use, from the game's own thread.
+        private static TextGenerator _LineCounter;
+
+        private static int LineCount(Text text)
+        {
+            TextGenerationSettings settings = text.GetGenerationSettings(new Vector2(text.rectTransform.rect.width, 100000f));
+            settings.horizontalOverflow = HorizontalWrapMode.Wrap;
+            settings.verticalOverflow = VerticalWrapMode.Overflow;
+            if (_LineCounter == null)
+            {
+                _LineCounter = new TextGenerator();
+            }
+            _LineCounter.Populate(text.text, settings);
+            return _LineCounter.lineCount;
+        }
+
+        //The text broken at the space that makes its longest line the shortest
+        public static string TwoLines(Text text, string content)
+        {
+            string best = content;
+            float bestWidth = float.MaxValue;
+            for (int i = content.IndexOf(' '); i >= 0; i = content.IndexOf(' ', i + 1))
+            {
+                string split = content.Substring(0, i) + "\n" + content.Substring(i + 1);
+                float width = LinesWidth(text, split);
+                if (width < bestWidth)
+                {
+                    best = split;
+                    bestWidth = width;
+                }
+            }
+            return best;
+        }
+
+        //Width of the widest line of a text (lines split at \n, not wrapped) at the text's current size
+        public static float LinesWidth(Text text, string content)
+        {
+            TextGenerationSettings settings = text.GetGenerationSettings(Vector2.zero);
+            settings.horizontalOverflow = HorizontalWrapMode.Overflow;
+            float widest = 0f;
+            foreach (string line in content.Split('\n'))
+            {
+                widest = Mathf.Max(widest, text.cachedTextGeneratorForLayout.GetPreferredWidth(line, settings) / text.pixelsPerUnit);
+            }
+            return widest;
         }
 
         //Gives a text shrunk by ShrinkToBox its original size back, for reused texts that should not be fitted anymore
@@ -525,6 +627,37 @@ namespace EnglishPatch.Hooks
             { "Equip_Select", 2 },
         };
 
+        //"Medicine" in the tab bar of the character screen (Status, Skills, Gear, Medicine, Items) ran into the slanted edge
+        //of the Items tab. It is a little smaller and moves a little closer to its icon (measured at 1920x1080).
+        private const string MedicineId = "General_Medicine";
+        private const int MedicineSmaller = 2;
+        private const float MedicineShift = -4f;
+
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _MedicineOrigin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+
+        private static void FitMedicineTab(Text text, string id)
+        {
+            if (id != MedicineId || !(TextUtil.OwningForm(text) is UIFormTab))
+            {
+                return;
+            }
+
+            if (!_OriginalSize.TryGetValue(text, out int originalSize))
+            {
+                originalSize = text.fontSize;
+                _OriginalSize[text] = originalSize;
+            }
+            text.fontSize = originalSize - MedicineSmaller;
+
+            RectTransform rect = text.rectTransform;
+            if (!_MedicineOrigin.TryGetValue(rect, out Vector2 origin))
+            {
+                origin = rect.anchoredPosition;
+                _MedicineOrigin[rect] = origin;
+            }
+            rect.anchoredPosition = origin + new Vector2(MedicineShift, 0f);
+        }
+
         //Size the game gave each of those labels, they may be updated more than once
         private static readonly System.Collections.Generic.Dictionary<Text, int> _OriginalSize = new System.Collections.Generic.Dictionary<Text, int>();
 
@@ -539,6 +672,9 @@ namespace EnglishPatch.Hooks
             {
                 TextUtil.ShrinkToWidth(text, MinTitleSize, margin);
             }
+
+            SaveLoadTab.Fit(text, ___id);
+            FitMedicineTab(text, ___id);
 
             if (_Smaller.TryGetValue(___id, out int smaller))
             {
@@ -563,6 +699,172 @@ namespace EnglishPatch.Hooks
             __instance.FinalDodge.GetComponent<Text>().horizontalOverflow = HorizontalWrapMode.Overflow;
             __instance.FinalHit.GetComponent<Text>().horizontalOverflow = HorizontalWrapMode.Overflow;
             __instance.FinalParry.GetComponent<Text>().horizontalOverflow = HorizontalWrapMode.Overflow;
+
+            //The bio broke in the middle of words (the game turns the spaces into non-breaking spaces) and ran over the top of
+            //its box. It wraps at spaces again and shrinks until it fits the box. The text area (200 high) is a little taller
+            //than the light box drawn behind it (about 190), so some room is kept free above and below, fonts with tall lines
+            //(Yu Gothic) otherwise stuck out of the box.
+            TextUtil.ShrinkToBox(TextUtil.TextOf(__instance.Introduction), BioMinSize, BioPadding);
+
+            //The inner art and gear names under their icons took 3 lines and ran into the icon ("Martial Code of the Fierce
+            //Marquis"), or were cut at the right ("Cordierite Handwraps"). They shrink until they take at most 2 lines.
+            foreach (WGPropsIntroduction slot in new[] { __instance.Mantra, __instance.Weapon, __instance.Cloth, __instance.Jewelry })
+            {
+                if (slot != null)
+                {
+                    TextUtil.ShrinkToLines(TextUtil.TextOf(_PropsName(slot)), NameLines, NameMinSize);
+                }
+            }
+        }
+
+        private const int BioMinSize = 12;
+        private const float BioPadding = 8f;
+        private const int NameLines = 2;
+        private const int NameMinSize = 12;
+
+        private static readonly AccessTools.FieldRef<WGPropsIntroduction, WGText> _PropsName = AccessTools.FieldRefAccess<WGPropsIntroduction, WGText>("propsName");
+    }
+
+    /*
+     * The label under a stacking buff icon in combat is "{name}\n{level}" ("Confused" in orange, "Lv 1" below). Its box is as
+     * wide as the icon, so the name broke in the middle ("Conf / used") and pushed the level out of the box.
+     * Each line stays whole now, and the label shrinks until its widest line fits the space between two icons (a little
+     * less, so labels of icons next to each other never touch).
+     */
+    [HarmonyPatch(typeof(WGBufferIcon), "SetBufferOverlay")]
+    public class WGBufferIcon_SetBufferOverlay_Hook
+    {
+        private const int MinSize = 10;
+        //Part of the distance between two icons a label may take
+        private const float RoomShare = 0.95f;
+
+        private static readonly AccessTools.FieldRef<WGBufferIcon, Text> _Overlay = AccessTools.FieldRefAccess<WGBufferIcon, Text>("Overlay");
+        private static readonly AccessTools.FieldRef<WGBufferGroup, System.Collections.Generic.List<WGBufferIcon>> _Icons =
+            AccessTools.FieldRefAccess<WGBufferGroup, System.Collections.Generic.List<WGBufferIcon>>("bufferItems");
+
+        //Size each label has in the prefab, the icons are reused for every buff
+        private static readonly System.Collections.Generic.Dictionary<Text, int> _OriginalSize = new System.Collections.Generic.Dictionary<Text, int>();
+
+        public static void Postfix(WGBufferIcon __instance, int overlay)
+        {
+            Text label = _Overlay(__instance);
+            if (overlay == 0 || label == null || string.IsNullOrEmpty(label.text))
+            {
+                return;
+            }
+
+            if (!_OriginalSize.TryGetValue(label, out int size))
+            {
+                size = label.fontSize;
+                _OriginalSize[label] = size;
+            }
+            label.fontSize = size;
+            label.resizeTextForBestFit = false;
+            label.horizontalOverflow = HorizontalWrapMode.Overflow;
+            label.verticalOverflow = VerticalWrapMode.Overflow;
+            label.text = label.text.Replace('\u00A0', ' ');
+
+            float room = Mathf.Abs(label.rectTransform.InverseTransformVector(new Vector3(WorldRoom(__instance), 0f, 0f)).x);
+            while (label.fontSize > MinSize && TextUtil.LinesWidth(label, label.text) > room)
+            {
+                label.fontSize--;
+            }
+        }
+
+        //The icon row each icon belongs to, found once (the icons stay in their row)
+        private static readonly System.Collections.Generic.Dictionary<WGBufferIcon, WGBufferGroup> _Group = new System.Collections.Generic.Dictionary<WGBufferIcon, WGBufferGroup>();
+
+        //The distance between two icons of the group, or the icon's own width when the group has a single icon
+        private static float WorldRoom(WGBufferIcon icon)
+        {
+            if (!_Group.TryGetValue(icon, out WGBufferGroup group))
+            {
+                group = icon.GetComponentInParent<WGBufferGroup>();
+                _Group[icon] = group;
+            }
+            System.Collections.Generic.List<WGBufferIcon> icons = group != null ? _Icons(group) : null;
+            if (icons != null && icons.Count >= 2 && icons[0] != null && icons[1] != null)
+            {
+                return Mathf.Abs(icons[1].transform.position.x - icons[0].transform.position.x) * RoomShare;
+            }
+            RectTransform rect = icon.Icon != null ? icon.Icon.rectTransform : (RectTransform)icon.transform;
+            return Mathf.Abs(rect.TransformVector(new Vector3(rect.rect.width, 0f, 0f)).x);
+        }
+    }
+
+    //The skill row of the battle status window (a character's status in combat): the same as the skill bar
+    [HarmonyPatch(typeof(UIBattleStatus), "set_all_button")]
+    public class UIBattleStatus_SetAllButton_Hook
+    {
+        public static void Postfix(UIBattleStatus __instance)
+        {
+            UIBattleUnitMenu_SetAllButton_Hook.FitNames(__instance.Skill_Buttons, __instance.Special_Skill_Button);
+        }
+    }
+
+    /*
+     * The skill bar at the bottom of the battle screen: long skill names ran into the names next to them or were cut.
+     * Each name gets the room between two skills (a little less, so neighbours keep a gap), goes on two lines if one is
+     * too wide, and only shrinks if two lines are still too wide.
+     */
+    [HarmonyPatch(typeof(UIBattleUnitMenu), "set_all_button")]
+    public class UIBattleUnitMenu_SetAllButton_Hook
+    {
+        private const int MinSize = 12;
+        //Part of the distance between two skills a name may take
+        private const float RoomShare = 0.92f;
+
+        private static readonly AccessTools.FieldRef<WGSkillBtn, Text> _SkillName = AccessTools.FieldRefAccess<WGSkillBtn, Text>("skill_name");
+
+        //Size each name has in the prefab, the buttons are reused for every unit
+        private static readonly System.Collections.Generic.Dictionary<Text, int> _OriginalSize = new System.Collections.Generic.Dictionary<Text, int>();
+
+        public static void Postfix(WGSkillBtn[] ___skill_buttons, WGSkillBtn ___special_skill_button)
+        {
+            FitNames(___skill_buttons, ___special_skill_button);
+        }
+
+        //Also used for the skill row of the battle status window (UIBattleStatus_SetAllButton_Hook)
+        public static void FitNames(WGSkillBtn[] buttons, WGSkillBtn special)
+        {
+            if (buttons == null || buttons.Length < 2 || buttons[0] == null || buttons[1] == null)
+            {
+                return;
+            }
+
+            float room = Mathf.Abs(buttons[1].transform.position.x - buttons[0].transform.position.x) * RoomShare;
+            foreach (WGSkillBtn button in buttons)
+            {
+                Fit(button, room);
+            }
+            Fit(special, room);
+        }
+
+        private static void Fit(WGSkillBtn button, float worldRoom)
+        {
+            Text name = button == null ? null : _SkillName(button);
+            if (name == null || string.IsNullOrEmpty(name.text))
+            {
+                return;
+            }
+
+            if (!_OriginalSize.TryGetValue(name, out int size))
+            {
+                size = name.fontSize;
+                _OriginalSize[name] = size;
+            }
+            name.fontSize = size;
+            name.resizeTextForBestFit = false;
+            name.horizontalOverflow = HorizontalWrapMode.Overflow;
+            name.verticalOverflow = VerticalWrapMode.Overflow;
+
+            float room = Mathf.Abs(name.rectTransform.InverseTransformVector(new Vector3(worldRoom, 0f, 0f)).x);
+            string oneLine = name.text.Replace('\n', ' ').Replace('\u00A0', ' ').Trim();
+            name.text = TextUtil.LinesWidth(name, oneLine) <= room ? oneLine : TextUtil.TwoLines(name, oneLine);
+            while (name.fontSize > MinSize && TextUtil.LinesWidth(name, name.text) > room)
+            {
+                name.fontSize--;
+            }
         }
     }
 
@@ -680,10 +982,20 @@ namespace EnglishPatch.Hooks
         {
             Text info = TextUtil.TextOf(___description);
             Text effect = TextUtil.TextOf(___effectDescription);
+            Text condition = TextUtil.TextOf(___conditionDescription);
 
-            //Only the panels of the three character screen tabs are laid out. Popups such as the gear selection, gifts and
-            //battle items use the same widget inside these screens with another layout, they are left as they are.
-            if (IsGearPanel(__instance))
+            //"Suitable for:" got a space on both sides of the colon, on the Gear tab, in the gear selection and in the combat popup
+            bool gearPanel = IsGearPanel(__instance);
+            bool gearPopup = IsPanelOf<UIInventoryWindow>(__instance);
+            bool battlePopup = IsPanelOf<UIBattleInventoryWindow>(__instance);
+            if (gearPanel || gearPopup || battlePopup)
+            {
+                SpaceSuitableFor(condition);
+            }
+
+            //The character screen tabs, the gear selection and the combat item popup each get their own layout below.
+            //The other places using this widget (gifts, shop, forge, elixirs...) are left as they are.
+            if (gearPanel)
             {
                 //The Info box always reaches down to the bottom of the Effect box next to it
                 InfoBox.SideMargins(info);
@@ -704,10 +1016,21 @@ namespace EnglishPatch.Hooks
                 SetTitleSize(effect, MedicineTitleSize);
                 InfoBox.Split(info, effect, MedicineEffectShrink, MinSize);
             }
-            else if (IsPanelOf<UIInventoryWindow>(__instance))
+            else if (gearPopup)
             {
                 //Gear selection popup: a long Info grows its band and pushes the parts below down
-                InfoBox.GearPopup(info, TextUtil.TextOf(___conditionDescription), effect, MinSize);
+                InfoBox.GearPopup(info, condition, effect, MinSize);
+                PopupTitles.SetSize(TextUtil.OwningForm(__instance));
+            }
+            else if (battlePopup)
+            {
+                //Item and gear popup in combat: Info is left aligned so it can be justified, Criteria and Effect stay centered,
+                //and the Criteria and Effect parts move down to make room for a long Info (see BattlePopup)
+                if (info != null)
+                {
+                    info.alignment = (TextAnchor)((int)info.alignment / 3 * 3);
+                }
+                BattlePopup.Layout(__instance, info, condition, effect, MinSize);
             }
 
             //The item Info is justified everywhere
@@ -731,6 +1054,24 @@ namespace EnglishPatch.Hooks
         {
             T form = TextUtil.OwningForm(widget) as T;
             return form != null && _PropsIntroduction(form) == widget;
+        }
+
+        //"Suitable for:" is SecondaryInterface0502, the game puts the character names right after it, separated by the
+        //Chinese comma 、. The names become "Suitable for : Zhao Zilong, Xiao Qianling". Only that first line is changed,
+        //the game may add another condition on the next line.
+        private static void SpaceSuitableFor(Text condition)
+        {
+            string label = Heluo.Game.Data?.Get<StringTable>("SecondaryInterface0502")?.Text;
+            if (condition == null || string.IsNullOrEmpty(label) || condition.text == null || !condition.text.StartsWith(label, System.StringComparison.Ordinal))
+            {
+                return;
+            }
+            string spaced = label.TrimEnd().TrimEnd(':', '：').TrimEnd() + " : ";
+            string rest = condition.text.Substring(label.Length).TrimStart();
+            int lineEnd = rest.IndexOf('\n');
+            string names = lineEnd < 0 ? rest : rest.Substring(0, lineEnd);
+            string after = lineEnd < 0 ? "" : rest.Substring(lineEnd);
+            condition.text = spaced + names.Replace("、", ", ") + after;
         }
 
         //The title ("Info", "Effect") is the Title child of the box the text sits in
@@ -1061,8 +1402,8 @@ namespace EnglishPatch.Hooks
         //The prefab label is bigger than the skill names (20), 18 keeps it a label next to them
         private const int LabelSize = 18;
 
-        //Where each "Qi Usage" label sits in the prefab, so we always move it from there
-        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector3> _LabelOrigin = new System.Collections.Generic.Dictionary<RectTransform, Vector3>();
+        //Where each "Qi Usage" label sits in the prefab (inside its parent, so moving or scrolling the screen does not change it), so we always move it from there
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _LabelOrigin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
 
         public static void Prefix(WGPaoMaDengText ___description)
         {
@@ -1075,8 +1416,10 @@ namespace EnglishPatch.Hooks
 
         //Each skill row is: skill name, "Qi Usage" label, Qi number. Long English names ran into the label.
         //We move the label right up to the number, then shrink the name if it still does not end before the label.
-        public static void Postfix(GameObject[] ___skillGo, WGText[] ___skills, WGText[] ___mps)
+        public static void Postfix(WGCourseIntroduction __instance, GameObject[] ___skillGo, WGText[] ___skills, WGText[] ___mps)
         {
+            CenterDescriptionTitle(__instance);
+
             if (___skillGo == null || ___skills == null || ___mps == null)
             {
                 return;
@@ -1110,6 +1453,69 @@ namespace EnglishPatch.Hooks
             }
         }
 
+        //The "Description" title ran into the diamond at the right end of its band. It gets the size the translation gives the
+        //"Skills Learned" title above it (20.5), and is centered on that title, which sits in the middle of the same band.
+        private const string DescriptionTitleId = "SecondaryInterface0107";
+        private const string SkillsTitleId = "SecondaryInterface0106";
+        private const int DescriptionTitleSize = 20;
+
+        //Where the "Description" title sits in the prefab, so we always move it from there
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _TitleOrigin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+
+        //The "Description" and "Skills Learned" titles of each course widget, found once
+        private static readonly System.Collections.Generic.Dictionary<WGCourseIntroduction, Text[]> _Titles = new System.Collections.Generic.Dictionary<WGCourseIntroduction, Text[]>();
+
+        private static void CenterDescriptionTitle(WGCourseIntroduction widget)
+        {
+            if (!_Titles.TryGetValue(widget, out Text[] titles))
+            {
+                UIForm form = TextUtil.OwningForm(widget);
+                if (form == null)
+                {
+                    return;
+                }
+                titles = new Text[2];
+                foreach (WGStringTable label in form.GetComponentsInChildren<WGStringTable>(true))
+                {
+                    string id = TextUtil.StringId(label);
+                    if (id == DescriptionTitleId)
+                    {
+                        titles[0] = label.GetComponent<Text>();
+                    }
+                    else if (id == SkillsTitleId)
+                    {
+                        titles[1] = label.GetComponent<Text>();
+                    }
+                }
+                _Titles[widget] = titles;
+            }
+
+            Text title = titles[0];
+            Text skills = titles[1];
+            if (title == null || string.IsNullOrEmpty(title.text))
+            {
+                return;
+            }
+
+            title.fontSize = DescriptionTitleSize;
+
+            RectTransform rect = title.rectTransform;
+            if (!_TitleOrigin.TryGetValue(rect, out Vector2 origin))
+            {
+                origin = rect.anchoredPosition;
+                _TitleOrigin[rect] = origin;
+            }
+            rect.anchoredPosition = origin;
+
+            if (skills == null || string.IsNullOrEmpty(skills.text))
+            {
+                return;
+            }
+            TextUtil.VisibleX(title, out float titleLeft, out float titleRight);
+            TextUtil.VisibleX(skills, out float skillsLeft, out float skillsRight);
+            rect.position += new Vector3((skillsLeft + skillsRight - titleLeft - titleRight) / 2f, 0f, 0f);
+        }
+
         private static void FitRow(Text name, Text label, Text mp)
         {
             TextUtil.VisibleX(mp, out float mpLeft, out _);
@@ -1118,19 +1524,19 @@ namespace EnglishPatch.Hooks
             if (label != null)
             {
                 RectTransform labelRect = label.rectTransform;
-                if (!_LabelOrigin.TryGetValue(labelRect, out Vector3 origin))
+                if (!_LabelOrigin.TryGetValue(labelRect, out Vector2 origin))
                 {
-                    origin = labelRect.position;
+                    origin = labelRect.anchoredPosition;
                     _LabelOrigin[labelRect] = origin;
                 }
-                labelRect.position = origin;
+                labelRect.anchoredPosition = origin;
                 label.fontSize = Mathf.Min(label.fontSize, LabelSize);
 
                 TextUtil.VisibleX(label, out float labelLeft, out float labelRight);
                 float shift = mpLeft - TextUtil.WorldWidth(labelRect, Gap) - labelRight;
                 if (shift > 0)
                 {
-                    labelRect.position = origin + new Vector3(shift, 0f, 0f);
+                    labelRect.position += new Vector3(shift, 0f, 0f);
                     labelLeft += shift;
                 }
                 rightLimit = labelLeft;
@@ -1157,10 +1563,19 @@ namespace EnglishPatch.Hooks
             Text text = __instance.Btn_Name;
             text.font = TextUtil.UIFont;
 
-            //Only Return, Socialize and the character names inside Socialize are fitted to their box, the other buttons keep the default size
+            //Only Return, Back/Next (previous and next page), Socialize and the character names inside Socialize are fitted to their box, the other buttons keep the default size
             Nurturance nurturance = __instance.tree?.Value;
             bool fit = nurturance != null
-                && (nurturance.Fuction == NurturanceFunction.Back || nurturance.Fuction == NurturanceFunction.Firend || nurturance.Id == "Nurturance_05");
+                && (nurturance.Fuction == NurturanceFunction.Back || nurturance.Fuction == NurturanceFunction.Previous || nurturance.Fuction == NurturanceFunction.Next
+                    || nurturance.Fuction == NurturanceFunction.Firend || nurturance.Id == "Nurturance_05");
+
+            //Martial arts and inner arts tabs: long names took up to 4 lines, they shrink until they take at most 2
+            if (nurturance != null && (nurturance.Fuction == NurturanceFunction.Skill || nurturance.Fuction == NurturanceFunction.Mantra))
+            {
+                TextUtil.ShrinkToLines(text, SkillLines, SkillMinSize);
+                return;
+            }
+
             if (!fit)
             {
                 TextUtil.RestoreBoxFit(text);
@@ -1169,7 +1584,7 @@ namespace EnglishPatch.Hooks
                 return;
             }
 
-            //Return has a tall narrow box made for Chinese written top to bottom, English is stacked letter by letter there
+            //Return, Back and Next have a tall narrow box made for Chinese written top to bottom, English is stacked letter by letter there
             Rect rect = text.rectTransform.rect;
             if (rect.height > rect.width * 1.5f && !string.IsNullOrEmpty(text.text))
             {
@@ -1180,6 +1595,8 @@ namespace EnglishPatch.Hooks
         }
 
         private const int MinSize = 10;
+        private const int SkillLines = 2;
+        private const int SkillMinSize = 12;
     }
 
     [HarmonyPatch(typeof(UIRegistration), "NameCheck")]
@@ -1276,10 +1693,136 @@ namespace EnglishPatch.Hooks
     [HarmonyPatch(typeof(WGBookBtn), "UpdateWidget")]
     public class WGBookBtn_UpdateWidget_Hook
     {
-        public static void Postfix(ref WGText ___itemName)
+        public static void Postfix(WGBookBtn __instance, ref WGText ___itemName, System.Collections.Generic.List<WGImage> ___difficultIcons)
         {
             //Debug.Log("WGBookBtn_UpdateWidget_Hook");
-            TextUtil.FitWrapping(___itemName.GetComponent<Text>());
+            //Long book names took 3 lines and ran into "Remaining Chapters", they shrink until they take at most 2
+            TextUtil.ShrinkToLines(TextUtil.TextOf(___itemName), NameLines, NameMinSize);
+            AlignChapters(__instance, TextUtil.TextOf(___itemName), ___difficultIcons);
+
+            //A button shown for the first time is not laid out yet ("Remaining Chapters" may not even have its English text),
+            //so the move above is off and it jumped into place only on the next update. It is done again right before the
+            //screen is drawn, after Unity has laid everything out.
+            _Pending[__instance] = ___difficultIcons;
+            if (!_Subscribed)
+            {
+                Canvas.willRenderCanvases += AlignPending;
+                _Subscribed = true;
+            }
+        }
+
+        private static readonly System.Collections.Generic.Dictionary<WGBookBtn, System.Collections.Generic.List<WGImage>> _Pending = new System.Collections.Generic.Dictionary<WGBookBtn, System.Collections.Generic.List<WGImage>>();
+        private static bool _Subscribed;
+        private static readonly AccessTools.FieldRef<WGBookBtn, WGText> _ItemName = AccessTools.FieldRefAccess<WGBookBtn, WGText>("itemName");
+
+        //Runs after Unity's own layout (it registered first), once for each button updated since the last frame
+        private static void AlignPending()
+        {
+            if (_Pending.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var pending in _Pending)
+            {
+                //A button destroyed in the meantime compares equal to null
+                if (pending.Key != null)
+                {
+                    AlignChapters(pending.Key, TextUtil.TextOf(_ItemName(pending.Key)), pending.Value);
+                }
+            }
+            _Pending.Clear();
+        }
+
+        private const int NameLines = 2;
+        private const int NameMinSize = 14;
+
+        /*
+         * "Remaining Chapters" and the chapter icons after it started under the book cover, and the icons were tall enough to
+         * reach into the book name above. They move right so "Remaining Chapters" starts where the book name starts,
+         * and the icons get smaller.
+         */
+        private const string ChaptersId = "SecondaryInterface2207";
+        private const float IconScale = 0.75f;
+
+        //Position and scale each of them has in the prefab, so we always start from there
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Origin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+        private static readonly System.Collections.Generic.Dictionary<Transform, Vector3> _Scale = new System.Collections.Generic.Dictionary<Transform, Vector3>();
+
+        //The "Remaining Chapters" label of each button, found once (the list reuses its buttons)
+        private static readonly System.Collections.Generic.Dictionary<WGBookBtn, Text> _Label = new System.Collections.Generic.Dictionary<WGBookBtn, Text>();
+
+        private static void AlignChapters(WGBookBtn button, Text name, System.Collections.Generic.List<WGImage> icons)
+        {
+            if (!_Label.TryGetValue(button, out Text label))
+            {
+                foreach (WGStringTable table in button.GetComponentsInChildren<WGStringTable>(true))
+                {
+                    if (TextUtil.StringId(table) == ChaptersId)
+                    {
+                        label = table.GetComponent<Text>();
+                        break;
+                    }
+                }
+                _Label[button] = label;
+            }
+            if (name == null || label == null || string.IsNullOrEmpty(name.text))
+            {
+                return;
+            }
+
+            var parts = new System.Collections.Generic.List<Transform> { label.transform };
+            if (icons != null)
+            {
+                foreach (WGImage icon in icons)
+                {
+                    if (icon == null)
+                    {
+                        continue;
+                    }
+                    if (!_Scale.TryGetValue(icon.transform, out Vector3 scale))
+                    {
+                        scale = icon.transform.localScale;
+                        _Scale[icon.transform] = scale;
+                    }
+                    icon.transform.localScale = scale * IconScale;
+                    parts.Add(icon.transform);
+                }
+            }
+
+            //What gets moved: each part, or the layout group holding it (a layout group puts its children back), never something inside another one that moves
+            var movers = new System.Collections.Generic.List<RectTransform>();
+            foreach (Transform part in parts)
+            {
+                Transform mover = part.parent != null && part.parent.GetComponent<LayoutGroup>() != null ? part.parent : part;
+                if (mover is RectTransform rect && !movers.Contains(rect))
+                {
+                    movers.Add(rect);
+                }
+            }
+            movers.RemoveAll(m => movers.Exists(other => other != m && m.IsChildOf(other)));
+
+            foreach (RectTransform mover in movers)
+            {
+                if (!_Origin.TryGetValue(mover, out Vector2 origin))
+                {
+                    origin = mover.anchoredPosition;
+                    _Origin[mover] = origin;
+                }
+                mover.anchoredPosition = origin;
+            }
+
+            TextUtil.VisibleX(name, out float nameLeft, out _);
+            TextUtil.VisibleX(label, out float labelLeft, out _);
+            float shift = nameLeft - labelLeft;
+            if (shift <= 0f)
+            {
+                return;
+            }
+            foreach (RectTransform mover in movers)
+            {
+                mover.position += new Vector3(shift, 0f, 0f);
+            }
         }
     }
 
@@ -1303,6 +1846,283 @@ namespace EnglishPatch.Hooks
             //Debug.Log("WGTitleValue_TitleFormat_Hook");
             ___Title.font = TextUtil.UIFont;
             ___Title.fontSize = 24;
+            TrainingTipArrow.Raise(___Title);
+        }
+    }
+
+    /*
+     * Combat screens (every screen whose class starts with UIBattle: the battle screen with the victory and failure conditions,
+     * the skill bar, the battle status, the stance list, the item and gear popup, the result): their texts written in the game's
+     * own font (Kaiu, which is the Windows font DFKai-SB) get the CombatFont from the config file, if one is set.
+     * Done every time such a screen is shown, items added to its lists are copies of texts already changed.
+     */
+    [HarmonyPatch(typeof(UIForm), "Show")]
+    public class UIForm_Show_CombatFont_Hook
+    {
+        //Name Unity gives the game's font
+        private const string GameFont = "Kaiu";
+
+        public static void Postfix(UIForm __instance)
+        {
+            Font font = TextUtil.CombatFont;
+            if (font == null || __instance == null || !__instance.GetType().Name.StartsWith("UIBattle", System.StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            foreach (Text text in __instance.GetComponentsInChildren<Text>(true))
+            {
+                if (text.font != null && text.font.name == GameFont)
+                {
+                    text.font = font;
+                }
+            }
+        }
+    }
+
+    /*
+     * The "Info", "Criteria" and "Effect" titles of the gear selection popup and of the item and gear popup in combat:
+     * "Criteria" (24-25 in the prefab) ran into the diamonds at both ends of its banner. All three get the same smaller size.
+     * These popups have two copies of the panel (StaticCanvas/PropsBG draws the visible titles, DynamicCanvas/PropsIntroduction
+     * has hidden ones), both are changed. Done once per popup, nothing sets the size back.
+     */
+    internal static class PopupTitles
+    {
+        private const int Size = 19;
+
+        //String ids of the "Info", "Criteria" and "Effect" titles
+        private static readonly System.Collections.Generic.HashSet<string> _Ids = new System.Collections.Generic.HashSet<string>
+        {
+            "General_Introduction", "General_Condition", "General_PassCondition", "General_Effect"
+        };
+
+        private static readonly string[] _Paths =
+        {
+            "StaticCanvas/PropsBG/Description/Title", "StaticCanvas/PropsBG/ConditionDescription/Title", "StaticCanvas/PropsBG/EffectDescription/Title",
+            "DynamicCanvas/PropsIntroduction/Description/Title", "DynamicCanvas/PropsIntroduction/ConditionDescription/Title", "DynamicCanvas/PropsIntroduction/EffectDescription/Title",
+        };
+
+        private static readonly System.Collections.Generic.HashSet<UIForm> _Done = new System.Collections.Generic.HashSet<UIForm>();
+
+        public static void SetSize(UIForm popup)
+        {
+            if (popup == null || !_Done.Add(popup))
+            {
+                return;
+            }
+
+            foreach (WGStringTable label in popup.GetComponentsInChildren<WGStringTable>(true))
+            {
+                Text text = label.GetComponent<Text>();
+                if (text != null && _Ids.Contains(TextUtil.StringId(label)))
+                {
+                    text.fontSize = Size;
+                }
+            }
+            foreach (string path in _Paths)
+            {
+                Text title = popup.transform.Find(path)?.GetComponent<Text>();
+                if (title != null)
+                {
+                    title.fontSize = Size;
+                }
+            }
+        }
+    }
+
+    /*
+     * The item and gear popup in combat (UIBattleInventoryWindow). It has two copies of the panel: StaticCanvas/PropsBG draws
+     * the paper, the "Info", "Criteria" and "Effect" banners and their titles, DynamicCanvas/PropsIntroduction draws the same
+     * banners again with the texts in them. The banners are separate objects (not part of the paper picture), so they can move.
+     * The Info text area is 75 high and its 3rd line already touched the "Criteria" banner, a 4th line ran over it.
+     * The Criteria and Effect parts (both copies of the banners, with their texts) move down as far as the Info text needs,
+     * the Effect text keeps its bottom edge. They move at most as far as the Effect text still fits, a longer Info shrinks.
+     */
+    internal static class BattlePopup
+    {
+        //Gap kept between the Info text and the "Criteria" banner below it, and between the "Effect" banner and its text
+        private const float Gap = 8f;
+
+        //Position and size each part has in the prefab, the popup is updated for every item
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2[]> _Original = new System.Collections.Generic.Dictionary<RectTransform, Vector2[]>();
+
+        public static void Layout(WGPropsIntroduction popup, Text info, Text condition, Text effect, int minSize)
+        {
+            RectTransform panel = popup.transform as RectTransform;
+            RectTransform conditionBanner = condition != null ? condition.transform.parent as RectTransform : null;
+            RectTransform effectBanner = effect != null ? effect.transform.parent as RectTransform : null;
+            if (panel == null || info == null || conditionBanner == null || effectBanner == null
+                || conditionBanner.name != "ConditionDescription" || effectBanner.name != "EffectDescription"
+                || conditionBanner.parent != panel || effectBanner.parent != panel)
+            {
+                return;
+            }
+
+            Transform window = TextUtil.OwningForm(popup)?.transform;
+            RectTransform staticConditionBanner = window?.Find("StaticCanvas/PropsBG/ConditionDescription") as RectTransform;
+            RectTransform staticEffectBanner = window?.Find("StaticCanvas/PropsBG/EffectDescription") as RectTransform;
+            PopupTitles.SetSize(TextUtil.OwningForm(popup));
+
+            foreach (RectTransform rect in new[] { info.rectTransform, conditionBanner, effectBanner, effect.rectTransform, staticConditionBanner, staticEffectBanner })
+            {
+                Restore(rect);
+            }
+
+            foreach (Text text in new[] { info, effect })
+            {
+                text.text = text.text?.Replace('\u00A0', ' ');
+                text.horizontalOverflow = HorizontalWrapMode.Wrap;
+                text.verticalOverflow = VerticalWrapMode.Overflow;
+            }
+
+            //How far down Criteria and Effect have to go for the whole Info text, and how far they can go
+            float infoTop = Top(info.rectTransform, panel);
+            float conditionTop = Top(conditionBanner, panel);
+            float wanted = conditionTop - (infoTop - info.preferredHeight - Gap);
+            float room = Bottom(effectBanner, panel) - Gap - Bottom(effect.rectTransform, panel) - effect.preferredHeight;
+            float shift = Mathf.Clamp(wanted, 0f, Mathf.Max(0f, room));
+
+            if (shift > 0f)
+            {
+                foreach (RectTransform banner in new[] { conditionBanner, effectBanner, staticConditionBanner, staticEffectBanner })
+                {
+                    if (banner != null)
+                    {
+                        banner.anchoredPosition -= new Vector2(0f, shift);
+                    }
+                }
+                //The Effect text moved down with its banner, its bottom edge goes back up to where it was
+                MoveBottom(effect.rectTransform, -shift);
+            }
+
+            //Info may use the room down to the gap above the (moved) "Criteria" banner
+            float infoBottom = conditionTop - shift + Gap;
+            MoveBottom(info.rectTransform, Bottom(info.rectTransform, panel) - infoBottom);
+            if (info.preferredHeight > info.rectTransform.rect.height)
+            {
+                TextUtil.ShrinkToHeight(info, minSize);
+            }
+            if (effect.preferredHeight > effect.rectTransform.rect.height)
+            {
+                TextUtil.ShrinkToHeight(effect, minSize);
+            }
+        }
+
+        private static void Restore(RectTransform rect)
+        {
+            if (rect == null)
+            {
+                return;
+            }
+            if (!_Original.TryGetValue(rect, out Vector2[] original))
+            {
+                original = new[] { rect.anchoredPosition, rect.sizeDelta };
+                _Original[rect] = original;
+            }
+            rect.anchoredPosition = original[0];
+            rect.sizeDelta = original[1];
+        }
+
+        //Moves the bottom edge of a rect down by down (up when negative), the top edge stays, whatever its pivot
+        private static void MoveBottom(RectTransform rect, float down)
+        {
+            rect.sizeDelta += new Vector2(0f, down);
+            rect.anchoredPosition -= new Vector2(0f, down * (1f - rect.pivot.y));
+        }
+
+        //Top and bottom edge of a rect, in the panel's space
+        private static float Top(RectTransform rect, RectTransform panel)
+        {
+            Vector3[] corners = new Vector3[4];
+            rect.GetWorldCorners(corners);
+            return panel.InverseTransformPoint(corners[1]).y;
+        }
+
+        private static float Bottom(RectTransform rect, RectTransform panel)
+        {
+            Vector3[] corners = new Vector3[4];
+            rect.GetWorldCorners(corners);
+            return panel.InverseTransformPoint(corners[0]).y;
+        }
+    }
+
+    /*
+     * The tabs of the save/load screen (Local storage, Cloud Save, Auto Save, Combat Autosave): the names are centered on the
+     * tab, so they ran over the icon on the left and into the slanted edge of the next tab. Each name moves right, next to its
+     * icon, and is fitted to the room between the icon and the slanted edge: it goes on two lines if one is too wide, and only
+     * shrinks if two lines are still too wide. Room and move are measured at 1920x1080, the first tab is shaped differently.
+     */
+    internal static class SaveLoadTab
+    {
+        private const int MinSize = 14;
+
+        //Tab name id -> (move to the right, room between the icon and the slanted edge)
+        private static readonly System.Collections.Generic.Dictionary<string, Vector2> _Tabs = new System.Collections.Generic.Dictionary<string, Vector2>
+        {
+            { "SecondaryInterface2117", new Vector2(3f, 115f) },  //Local storage
+            { "SecondaryInterface2103", new Vector2(35f, 145f) }, //Cloud Save
+            { "SecondaryInterface2104", new Vector2(35f, 145f) }, //Auto Save
+            { "SecondaryInterface2118", new Vector2(35f, 145f) }, //Combat Autosave
+        };
+
+        //Size and position each name has in the prefab
+        private static readonly System.Collections.Generic.Dictionary<Text, int> _OriginalSize = new System.Collections.Generic.Dictionary<Text, int>();
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Origin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+
+        public static void Fit(Text text, string id)
+        {
+            if (text == null || string.IsNullOrEmpty(text.text) || !_Tabs.TryGetValue(id, out Vector2 tab) || !(TextUtil.OwningForm(text) is UISaveLoad))
+            {
+                return;
+            }
+
+            RectTransform rect = text.rectTransform;
+            if (!_Origin.TryGetValue(rect, out Vector2 origin))
+            {
+                origin = rect.anchoredPosition;
+                _Origin[rect] = origin;
+            }
+            rect.anchoredPosition = origin + new Vector2(tab.x, 0f);
+
+            if (!_OriginalSize.TryGetValue(text, out int size))
+            {
+                size = text.fontSize;
+                _OriginalSize[text] = size;
+            }
+            text.fontSize = size;
+            text.resizeTextForBestFit = false;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            text.alignment = TextAnchor.MiddleCenter;
+
+            string oneLine = text.text.Replace('\n', ' ').Replace('\u00A0', ' ').Trim();
+            text.text = TextUtil.LinesWidth(text, oneLine) <= tab.y ? oneLine : TextUtil.TwoLines(text, oneLine);
+            while (text.fontSize > MinSize && TextUtil.LinesWidth(text, text.text) > tab.y)
+            {
+                text.fontSize--;
+            }
+        }
+    }
+
+    /*
+     * The training tip (hovering a skill or inner art in the training menu) shows "Lv. 1 → Lv. 2" and "Damage 214→230".
+     * Arial draws → small and low, next to the numbers it looked offset. A bigger arrow sits in the middle of the line.
+     */
+    internal static class TrainingTipArrow
+    {
+        private const float Scale = 1.4f;
+
+        public static void Raise(Text text)
+        {
+            if (text == null || string.IsNullOrEmpty(text.text) || text.text.IndexOf('→') < 0 || text.text.Contains("→</size>")
+                || !(TextUtil.OwningForm(text) is UINurturance))
+            {
+                return;
+            }
+
+            //"Lv. 1 → Lv. 2" has a space on both sides of the arrow, "Damage 214→230" had none, both get one
+            text.supportRichText = true;
+            text.text = text.text.Replace(" → ", "→").Replace("→", " <size=" + Mathf.RoundToInt(text.fontSize * Scale) + ">→</size> ");
         }
     }
 
@@ -1314,6 +2134,7 @@ namespace EnglishPatch.Hooks
             //Debug.Log("WGTitleValue_ValueFromat_Hook");
             ___Value.font = TextUtil.UIFont;
             ___Value.fontSize = 20;
+            TrainingTipArrow.Raise(___Value);
         }
     }
 
@@ -1334,10 +2155,27 @@ namespace EnglishPatch.Hooks
             //The game turns every space into a non-breaking space (StringTool.Replace), so English lines broke in the middle of words. Turning them back allows wrapping at spaces.
             ___community_introduction.text = ___community_introduction.text.Replace(' ', ' ');
 
-            //Longer bios got cut off at the bottom of the Info box, so we let the text shrink until it fits, then justify it.
-            TextUtil.ShrinkToBox(___community_introduction, 12);
+            //Longer bios got cut off at the bottom of the Info box, so we let the text shrink until it fits with a little room
+            //above and below, then justify it. It sits in the middle of the box, so the room is the same at the top and bottom.
+            TextUtil.ShrinkToBox(___community_introduction, 12, BioPadding);
+            ___community_introduction.alignment = TextAnchor.MiddleLeft;
             TextUtil.Justify(___community_introduction);
+
+            //The text sits closer to the right edge of the Info box than to the left one, moved left so both gaps are about the same
+            RectTransform rect = ___community_introduction.rectTransform;
+            if (!_BioOrigin.TryGetValue(rect, out Vector2 origin))
+            {
+                origin = rect.anchoredPosition;
+                _BioOrigin[rect] = origin;
+            }
+            rect.anchoredPosition = origin + new Vector2(-BioShift, 0f);
         }
+
+        private const float BioShift = 8f;
+        private const float BioPadding = 4f;
+
+        //Where the bio sits in the prefab, so we always move it from there
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _BioOrigin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
     }
 
     //Hobby labels on the relationship screen (Calligraphy, Alcohol...), the pills are sized for 2 Chinese characters
@@ -1613,6 +2451,77 @@ namespace EnglishPatch.Hooks
                     rt.ForceUpdateRectTransforms();
                 }
             }
+        }
+    }
+
+    //Quest screen reward rows ("Crimson Phoenix Dex Powder  1 pc"): kept on one line, shrunk until they fit their row
+    [HarmonyPatch(typeof(WGCommissionIntroduction), "UpdateWidget")]
+    public class WGCommissionIntroduction_UpdateWidget_Hook
+    {
+        private const int MinSize = 14;
+
+        public static void Postfix(WGText[] ___EvaluationReward)
+        {
+            if (___EvaluationReward == null)
+            {
+                return;
+            }
+
+            foreach (WGText reward in ___EvaluationReward)
+            {
+                TextUtil.ShrinkToWidth(TextUtil.TextOf(reward), MinSize);
+            }
+
+            AlignRows(___EvaluationReward);
+        }
+
+        /*
+         * The reward texts are spaced a little wider apart than the lines between the rows: the first one sits in the middle
+         * of its row, the second about 2 pixels and the third about 7 pixels too low (measured at 1920x1080).
+         * The rows below the first one are moved up so every text sits in the middle of its row. The lines are this much
+         * closer together than the texts were (51.5 against 55 pixels), so it works the same at any resolution.
+         */
+        private const float RowToTextSpacing = 51.5f / 55f;
+
+        //Where each reward text sits in the prefab, so we always move it from there
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _RowOrigin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+
+        private static void AlignRows(WGText[] rewards)
+        {
+            if (rewards.Length < 3)
+            {
+                return;
+            }
+
+            RectTransform[] rects = new RectTransform[rewards.Length];
+            for (int i = 0; i < rewards.Length; i++)
+            {
+                Text text = TextUtil.TextOf(rewards[i]);
+                if (text == null)
+                {
+                    return;
+                }
+                rects[i] = text.rectTransform;
+                if (!_RowOrigin.TryGetValue(rects[i], out Vector2 origin))
+                {
+                    origin = rects[i].anchoredPosition;
+                    _RowOrigin[rects[i]] = origin;
+                }
+                rects[i].anchoredPosition = origin;
+            }
+
+            float first = Center(rects[0]);
+            float spacing = (first - Center(rects[2])) / 2f * RowToTextSpacing;
+            for (int i = 1; i < rects.Length; i++)
+            {
+                rects[i].position += new Vector3(0f, first - i * spacing - Center(rects[i]), 0f);
+            }
+        }
+
+        //Vertical world position of the middle of a rect
+        private static float Center(RectTransform rect)
+        {
+            return rect.TransformPoint(rect.rect.center).y;
         }
     }
 

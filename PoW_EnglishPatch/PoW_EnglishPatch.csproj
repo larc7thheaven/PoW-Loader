@@ -24,5 +24,6 @@
     <Reference Include="UnityEngine.CoreModule" HintPath="$(GameDependencies)UnityEngine.CoreModule.dll" Private="false" />
     <Reference Include="UnityEngine.TextRenderingModule" HintPath="$(GameDependencies)UnityEngine.TextRenderingModule.dll" Private="false" />
     <Reference Include="UnityEngine.UI" HintPath="$(GameDependencies)UnityEngine.UI.dll" Private="false" />
+    <Reference Include="UnityEngine.UIModule" HintPath="$(GameDependencies)UnityEngine.UIModule.dll" Private="false" />
   </ItemGroup>
 </Project>

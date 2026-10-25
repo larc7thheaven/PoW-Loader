@@ -33,6 +33,9 @@ namespace EnglishPatch
         //Font for the English texts, from BepInEx/config/plugins.englishpatch.cfg
         public static string FontName { get; private set; } = DefaultFont;
 
+        //Font for the combat texts that use the game's own font (DFKai-SB), empty keeps that font
+        public static string CombatFontName { get; private set; } = "";
+
         public void Load()
         {
             ModAPI.ModAPI.GetInstance().ResourceRedirector.AddRessourceFolder("ModResources" + Path.DirectorySeparatorChar + "EnglishTranslate");
@@ -64,6 +67,10 @@ namespace EnglishPatch
                 "Font for the English texts. Any font installed in Windows works, by its name as shown in the Windows font list " +
                 "(for example Palatino Linotype, Book Antiqua, Constantia, Georgia, Cambria, Arial). " +
                 "A font that is not installed falls back to Arial. Restart the game after changing it.").Value;
+            CombatFontName = Config.Bind("Text", "CombatFont", "",
+                "Font for the combat texts that are written in the game's own font, DFKai-SB (skill names, victory and failure " +
+                "conditions...). Leave it empty to keep the game's font. Otherwise any font installed in Windows, by its name " +
+                "as for Font (for example Arial). A font that is not installed falls back to Arial. Restart the game after changing it.").Value;
             //Adding it to ModAPI list
             ModAPI.ModAPI.GetInstance().AddMod(this);
         }
