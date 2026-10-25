@@ -676,7 +676,7 @@ namespace EnglishPatch.Hooks
         //Four more lines of size 20 (23 each) than the two the box was made for, plus the gap kept below the last line
         private const float ItemsExtraHeight = 100f;
 
-        public static void Postfix(WGPropsIntroduction __instance, WGText ___description, WGText ___effectDescription)
+        public static void Postfix(WGPropsIntroduction __instance, WGText ___description, WGText ___effectDescription, WGText ___conditionDescription)
         {
             Text info = TextUtil.TextOf(___description);
             Text effect = TextUtil.TextOf(___effectDescription);
@@ -704,6 +704,11 @@ namespace EnglishPatch.Hooks
                 SetTitleSize(effect, MedicineTitleSize);
                 InfoBox.Split(info, effect, MedicineEffectShrink, MinSize);
             }
+            else if (IsPanelOf<UIInventoryWindow>(__instance))
+            {
+                //Gear selection popup: the Effect text starts right under its heading, a long Info pushes the parts below down
+                InfoBox.GearPopup(info, TextUtil.TextOf(___conditionDescription), effect, MinSize);
+            }
 
             //The item Info is justified everywhere
             TextUtil.Justify(info);
@@ -721,7 +726,7 @@ namespace EnglishPatch.Hooks
             return equip != null && (_Weapon(equip) == widget || _Armor(equip) == widget || _Accessories(equip) == widget);
         }
 
-        //The item panel of that inventory screen itself (Items tab: UIInventory, Medicine tab: UIMedicine)
+        //The item panel of that inventory screen itself (Items tab: UIInventory, Medicine tab: UIMedicine, gear selection: UIInventoryWindow)
         private static bool IsPanelOf<T>(WGPropsIntroduction widget) where T : UIFormInventory
         {
             T form = TextUtil.OwningForm(widget) as T;
@@ -868,6 +873,70 @@ namespace EnglishPatch.Hooks
             }
             rect.offsetMax = new Vector2(rect.offsetMax.x, edges.x - Padding);
             rect.offsetMin = new Vector2(rect.offsetMin.x, edges.y + Padding);
+        }
+
+        /*
+         * The gear selection popup has an "Info", "Criteria" and "Effect" heading, each carrying its band (BG) and text.
+         * The Effect text was centered in a tall area and floated low, it now starts right under the heading.
+         * An Info text longer than its band (3 lines) made the band, and the Criteria and Effect parts below move down
+         * by what it needs, into the empty room at the bottom of the popup. Only a very long text also shrinks.
+         * The popup is only changed when it has exactly that structure.
+         */
+        //Top of the Effect text, below the middle of the "Effect" heading. The prefab has -25 with the text centered below it.
+        private const float PopupEffectTop = -63f;
+        //How far the parts below the Info band may move down, the popup has about this much empty room at the bottom
+        private const float PopupMaxPush = 80f;
+
+        public static void GearPopup(Text info, Text condition, Text effect, int minSize)
+        {
+            RectTransform infoHeader = info != null ? info.transform.parent as RectTransform : null;
+            RectTransform conditionHeader = condition != null ? condition.transform.parent as RectTransform : null;
+            RectTransform effectHeader = effect != null ? effect.transform.parent as RectTransform : null;
+            if (infoHeader == null || conditionHeader == null || effectHeader == null
+                || infoHeader.name != "Description" || conditionHeader.name != "ConditionDescription" || effectHeader.name != "EffectDescription"
+                || infoHeader.parent != conditionHeader.parent || infoHeader.parent != effectHeader.parent)
+            {
+                return;
+            }
+            RectTransform infoBand = infoHeader.Find("BG") as RectTransform;
+
+            Restore(info.rectTransform);
+            Restore(infoBand);
+            Restore(conditionHeader);
+            Restore(effectHeader);
+            Restore(effect.rectTransform);
+
+            //The Effect text starts at the top of its area, which starts right under the heading
+            effect.alignment = (TextAnchor)((int)effect.alignment % 3);
+            effect.rectTransform.offsetMax = new Vector2(effect.rectTransform.offsetMax.x, PopupEffectTop);
+
+            if (string.IsNullOrEmpty(info.text))
+            {
+                return;
+            }
+
+            NormalSpaces(info);
+            info.horizontalOverflow = HorizontalWrapMode.Wrap;
+            float missing = info.preferredHeight - info.rectTransform.rect.height;
+            if (missing <= 0f)
+            {
+                return;
+            }
+
+            //The Info text and its band grow down, the Criteria and Effect parts move down by as much
+            float push = Mathf.Min(missing, PopupMaxPush);
+            MoveEdges(info.rectTransform, 0f, push);
+            if (infoBand != null)
+            {
+                MoveEdges(infoBand, 0f, push);
+            }
+            conditionHeader.anchoredPosition -= new Vector2(0f, push);
+            effectHeader.anchoredPosition -= new Vector2(0f, push);
+
+            if (missing > push)
+            {
+                TextUtil.ShrinkToHeight(info, minSize);
+            }
         }
 
         private static void Restore(RectTransform box)
