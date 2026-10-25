@@ -35,12 +35,13 @@ namespace ModAPI
         //The game asks for assets as "Assets/Image/..." or with backslashes, our redirects are stored as "Image/..."
         private static string NormalizePath(string path)
         {
-            if (path.StartsWith("Assets/") || path.StartsWith("assets/"))
+            path = path.Replace("\\", "/");
+            if (path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase))
             {
                 path = path.Substring(7);
             }
 
-            return path.Replace("\\", "/");
+            return path;
         }
 
         public bool ExistsRedirect(string path)
@@ -82,7 +83,9 @@ namespace ModAPI
         private T LoadCached<T>(string path, Func<string, T> load) where T : class
         {
             path = NormalizePath(path);
-            if (_AssetCache.TryGetValue(path, out object cached))
+            //The same .png can be asked for as Texture2D and as Sprite, so the type is part of the key
+            string key = typeof(T).FullName + "|" + path;
+            if (_AssetCache.TryGetValue(key, out object cached))
             {
                 return cached as T;
             }
@@ -93,7 +96,7 @@ namespace ModAPI
             }
 
             T asset = load(path);
-            _AssetCache[path] = asset;
+            _AssetCache[key] = asset;
             return asset;
         }
 
