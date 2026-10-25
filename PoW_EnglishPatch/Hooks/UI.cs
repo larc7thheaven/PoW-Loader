@@ -1125,6 +1125,48 @@ namespace EnglishPatch.Hooks
         }
     }
 
+    /*
+     * The skill and inner art selection popup (Skills tab): the name area of each row was sized for a few Chinese
+     * characters, English names wrapped into two or three lines and ran over the "Lv" below them. The name area now
+     * reaches to the right end of its row, its left end stays where it is. Other lists with the same button keep their
+     * layout, some of them show a "New" badge on the right.
+     */
+    [HarmonyPatch(typeof(WGScrollBtn), "UpdateWidget")]
+    public class WGScrollBtn_UpdateWidget_Hook
+    {
+        private const float Margin = 15f;
+
+        //Width and position each name area has in the prefab
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2[]> _Original = new System.Collections.Generic.Dictionary<RectTransform, Vector2[]>();
+
+        public static void Postfix(WGScrollBtn __instance, WGText ___itemName)
+        {
+            Text name = TextUtil.TextOf(___itemName);
+            RectTransform row = __instance.transform as RectTransform;
+            if (name == null || row == null || !(TextUtil.OwningForm(__instance) is UIMartialArtsWindow))
+            {
+                return;
+            }
+
+            RectTransform rect = name.rectTransform;
+            if (!_Original.TryGetValue(rect, out Vector2[] original))
+            {
+                original = new[] { rect.sizeDelta, rect.anchoredPosition };
+                _Original[rect] = original;
+            }
+            rect.sizeDelta = original[0];
+            rect.anchoredPosition = original[1];
+
+            float rowRight = rect.InverseTransformPoint(row.TransformPoint(new Vector3(row.rect.xMax, 0f, 0f))).x;
+            float grow = rowRight - Margin - rect.rect.xMax;
+            if (grow > 0f)
+            {
+                rect.sizeDelta += new Vector2(grow, 0f);
+                rect.anchoredPosition += new Vector2(grow * rect.pivot.x, 0f);
+            }
+        }
+    }
+
     [HarmonyPatch(typeof(WGBookBtn), "UpdateWidget")]
     public class WGBookBtn_UpdateWidget_Hook
     {
