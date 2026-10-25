@@ -27,7 +27,8 @@ namespace EnglishPatch
 
         private Harmony _HM;
 
-        private const string DefaultFont = "Palatino Linotype";
+        //Arial is the font the English texts always had, so updating the mod does not change how the game looks
+        private const string DefaultFont = "Arial";
 
         //Font for the English texts, from BepInEx/config/plugins.englishpatch.cfg
         public static string FontName { get; private set; } = DefaultFont;
