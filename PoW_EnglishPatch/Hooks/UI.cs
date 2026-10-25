@@ -1129,12 +1129,15 @@ namespace EnglishPatch.Hooks
      * The skill and inner art selection popup (Skills tab): the name area of each row was sized for a few Chinese
      * characters, English names wrapped into two or three lines and ran over the "Lv" below them. The name area is now
      * as wide as "Long Howl from Heavenly Gate" plus a little, its left end stays where it is, longer names take two lines.
+     * The names are one size smaller than the other texts.
      * Other lists with the same button keep their layout, some of them show a "New" badge on the right.
      */
     [HarmonyPatch(typeof(WGScrollBtn), "UpdateWidget")]
     public class WGScrollBtn_UpdateWidget_Hook
     {
         private const float NameWidth = 290f;
+        //The texts are set to 20 every time, the skill names here are a little smaller
+        private const int NameSize = 19;
 
         //Width and position each name area has in the prefab
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2[]> _Original = new System.Collections.Generic.Dictionary<RectTransform, Vector2[]>();
@@ -1146,6 +1149,8 @@ namespace EnglishPatch.Hooks
             {
                 return;
             }
+
+            name.fontSize = NameSize;
 
             RectTransform rect = name.rectTransform;
             if (!_Original.TryGetValue(rect, out Vector2[] original))
