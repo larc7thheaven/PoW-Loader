@@ -706,7 +706,7 @@ namespace EnglishPatch.Hooks
             }
             else if (IsPanelOf<UIInventoryWindow>(__instance))
             {
-                //Gear selection popup: the Effect text starts right under its heading, a long Info pushes the parts below down
+                //Gear selection popup: a long Info grows its band and pushes the parts below down
                 InfoBox.GearPopup(info, TextUtil.TextOf(___conditionDescription), effect, MinSize);
             }
 
@@ -877,13 +877,10 @@ namespace EnglishPatch.Hooks
 
         /*
          * The gear selection popup has an "Info", "Criteria" and "Effect" heading, each carrying its band (BG) and text.
-         * The Effect text was centered in a tall area and floated low, it now starts right under the heading.
-         * An Info text longer than its band (3 lines) made the band, and the Criteria and Effect parts below move down
-         * by what it needs, into the empty room at the bottom of the popup. Only a very long text also shrinks.
-         * The popup is only changed when it has exactly that structure.
+         * An Info text longer than its band (3 lines) ran over the "Criteria" heading. The band now grows by what the text
+         * needs, and the Criteria and Effect parts move down by as much, into the empty room at the bottom of the popup.
+         * Only a very long text also shrinks. The popup is only changed when it has exactly that structure.
          */
-        //Top of the Effect text, below the middle of the "Effect" heading. The prefab has -25 with the text centered below it.
-        private const float PopupEffectTop = -63f;
         //How far the parts below the Info band may move down, the popup has about this much empty room at the bottom
         private const float PopupMaxPush = 80f;
 
@@ -904,11 +901,6 @@ namespace EnglishPatch.Hooks
             Restore(infoBand);
             Restore(conditionHeader);
             Restore(effectHeader);
-            Restore(effect.rectTransform);
-
-            //The Effect text starts at the top of its area, which starts right under the heading
-            effect.alignment = (TextAnchor)((int)effect.alignment % 3);
-            effect.rectTransform.offsetMax = new Vector2(effect.rectTransform.offsetMax.x, PopupEffectTop);
 
             if (string.IsNullOrEmpty(info.text))
             {
