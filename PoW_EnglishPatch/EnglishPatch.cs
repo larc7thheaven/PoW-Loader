@@ -1,6 +1,7 @@
 ﻿using System.IO;
 
 using BepInEx;
+using BepInEx.Configuration;
 
 using HarmonyLib;
 
@@ -35,6 +36,11 @@ namespace EnglishPatch
 
         //Font for the combat texts that use the game's own font (DFKai-SB), empty keeps that font
         public static string CombatFontName { get; private set; } = "";
+
+        //Values of the ChristmasTitle setting
+        private const string ChristmasAuto = "Auto";
+        private const string ChristmasAlways = "Always";
+        private const string ChristmasNever = "Never";
 
         public void Load()
         {
@@ -71,6 +77,16 @@ namespace EnglishPatch
                 "Font for the combat texts that are written in the game's own font, DFKai-SB (skill names, victory and failure " +
                 "conditions...). Leave it empty to keep the game's font. Otherwise any font installed in Windows, by its name " +
                 "as for Font (for example Arial). A font that is not installed falls back to Arial. Restart the game after changing it.").Value;
+
+            //The title of the main menu has a Christmas version (Main_title_Christmas.png), shown in December by default
+            string christmasTitle = Config.Bind("Seasonal", "ChristmasTitle", ChristmasAuto, new ConfigDescription(
+                "Christmas version of the title on the main menu. Auto: only in December (by the date of this PC). " +
+                "Always: all year. Never: never. Restart the game after changing it.",
+                new AcceptableValueList<string>(ChristmasAuto, ChristmasAlways, ChristmasNever))).Value;
+            if (christmasTitle == ChristmasAlways || (christmasTitle == ChristmasAuto && System.DateTime.Now.Month == 12))
+            {
+                ModAPI.ModAPI.GetInstance().ResourceRedirector.ImageVariant = "Christmas";
+            }
             //Adding it to ModAPI list
             ModAPI.ModAPI.GetInstance().AddMod(this);
         }
