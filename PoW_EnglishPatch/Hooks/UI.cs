@@ -674,6 +674,7 @@ namespace EnglishPatch.Hooks
             }
 
             SaveLoadTab.Fit(text, ___id);
+            PawnshopTabs.Fit(text);
             FitMedicineTab(text, ___id);
 
             if (_Smaller.TryGetValue(___id, out int smaller))
@@ -1032,6 +1033,19 @@ namespace EnglishPatch.Hooks
                 }
                 BattlePopup.Layout(__instance, info, condition, effect, MinSize);
             }
+            else if (TextUtil.OwningForm(__instance) is UIForm shop && (shop is UIPawnshop || shop is UIAlchemy))
+            {
+                //Refine Medicine: the "Effect" heading sat right under the Info text, it moves down to the middle between
+                //the Info text and the effect
+                if (shop is UIAlchemy)
+                {
+                    MoveTitleDown(effect, AlchemyEffectTitleDown);
+                }
+
+                //Pawn shop and Refine Medicine: the effect ("Restore 500 Qi") started at the left edge of the middle panel,
+                //under the centered "Effect" heading. It is centered under that heading now.
+                CenterUnderTitle(effect);
+            }
 
             //The item Info is justified everywhere
             TextUtil.Justify(info);
@@ -1054,6 +1068,119 @@ namespace EnglishPatch.Hooks
         {
             T form = TextUtil.OwningForm(widget) as T;
             return form != null && _PropsIntroduction(form) == widget;
+        }
+
+        //How far the "Effect" heading of Refine Medicine moves down (measured at 1920x1080)
+        private const float AlchemyEffectTitleDown = 20f;
+
+        //Where each moved heading sits in the prefab, so we always move it from there
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _TitleOrigin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+
+        //Moves the heading of a text down (the text itself stays)
+        private static void MoveTitleDown(Text text, float down)
+        {
+            RectTransform title = Heading(text)?.rectTransform;
+            if (title == null)
+            {
+                return;
+            }
+            if (!_TitleOrigin.TryGetValue(title, out Vector2 origin))
+            {
+                origin = title.anchoredPosition;
+                _TitleOrigin[title] = origin;
+            }
+            title.anchoredPosition = origin - new Vector2(0f, down);
+        }
+
+        //Where each centered effect text sits in the prefab, so we always move it from there
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _EffectOrigin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+
+        //String ids of the "Effect" heading
+        private static readonly string[] _EffectTitleIds = { "General_Effect", "SecondaryInterface1406" };
+
+        //The heading found for each text, looked up once
+        private static readonly System.Collections.Generic.Dictionary<Text, Text> _Heading = new System.Collections.Generic.Dictionary<Text, Text>();
+
+        //The "Effect" heading of an effect text: the label of its screen that shows "Effect" (by its string id or its text)
+        //whose middle is closest above the middle of the effect text (on the pawn shop and Refine Medicine it is a sibling
+        //named Text, the game gives it no fixed name)
+        private static Text Heading(Text text)
+        {
+            if (text == null)
+            {
+                return null;
+            }
+            //Kept once found. Not found yet (the heading may not have its English text yet) or destroyed with its screen
+            //(it then compares equal to null): looked up again.
+            if (_Heading.TryGetValue(text, out Text heading) && heading != null)
+            {
+                return heading;
+            }
+
+            heading = null;
+            UIForm form = TextUtil.OwningForm(text);
+            if (form != null)
+            {
+                var words = new System.Collections.Generic.HashSet<string>();
+                foreach (string id in _EffectTitleIds)
+                {
+                    string word = Heluo.Game.Data?.Get<StringTable>(id)?.Text;
+                    if (!string.IsNullOrEmpty(word))
+                    {
+                        words.Add(word.Trim());
+                    }
+                }
+
+                //Centers are compared: the text box can be much taller than its text, its top may be above the heading
+                float center = text.rectTransform.TransformPoint(text.rectTransform.rect.center).y;
+                float best = float.MaxValue;
+                foreach (Text label in form.GetComponentsInChildren<Text>(true))
+                {
+                    if (label == text)
+                    {
+                        continue;
+                    }
+                    WGStringTable table = label.GetComponent<WGStringTable>();
+                    bool isEffect = (table != null && System.Array.IndexOf(_EffectTitleIds, TextUtil.StringId(table)) >= 0)
+                        || (label.text != null && words.Contains(label.text.Trim()));
+                    float above = label.rectTransform.TransformPoint(label.rectTransform.rect.center).y - center;
+                    if (isEffect && above > 0f && above < best)
+                    {
+                        best = above;
+                        heading = label;
+                    }
+                }
+            }
+
+            _Heading[text] = heading;
+            return heading;
+        }
+
+        //Centers a text and lines it up under its heading (just centered if there is none)
+        private static void CenterUnderTitle(Text text)
+        {
+            if (text == null)
+            {
+                return;
+            }
+
+            RectTransform rect = text.rectTransform;
+            if (!_EffectOrigin.TryGetValue(rect, out Vector2 origin))
+            {
+                origin = rect.anchoredPosition;
+                _EffectOrigin[rect] = origin;
+            }
+            rect.anchoredPosition = origin;
+            text.alignment = (TextAnchor)((int)text.alignment / 3 * 3 + 1);
+
+            Text title = Heading(text);
+            if (title == null || string.IsNullOrEmpty(title.text))
+            {
+                return;
+            }
+            TextUtil.VisibleX(title, out float titleLeft, out float titleRight);
+            float textCenter = rect.TransformPoint(rect.rect.center).x;
+            rect.position += new Vector3((titleLeft + titleRight) / 2f - textCenter, 0f, 0f);
         }
 
         //"Suitable for:" is SecondaryInterface0502, the game puts the character names right after it, separated by the
@@ -2043,6 +2170,191 @@ namespace EnglishPatch.Hooks
             Vector3[] corners = new Vector3[4];
             rect.GetWorldCorners(corners);
             return panel.InverseTransformPoint(corners[0]).y;
+        }
+    }
+
+    /*
+     * The tabs of the pawn shop (Weapon, Armor, Accessories, Medicine, Gift): the names were centered on the tab, so they ran
+     * over their icon and into the slanted edge of the next tab. Each tab button (184 wide) holds an Icon (43 x 43) with the
+     * name inside it (TabBtn_Weapon/Icon/Text). The icons get smaller (their left edge stays), and each name is centered in
+     * the room between its icon and the slanted edge, shrinking only if it does not fit. Done when a name gets its English
+     * text (WGStringTable.UpdateString), the shop is not laid out with English names before that.
+     */
+    internal static class PawnshopTabs
+    {
+        private const float IconScale = 0.8f;
+        private const int MinSize = 12;
+        //Gap between the icon and the name, in pixels at 1920x1080
+        private const float Gap = 4f;
+
+        //Name -> where its room ends, from the left edge of its tab button, before the slanted edge (pixels at 1920x1080,
+        //measured on the pawn shop at the bottom of the letters, where the edge is furthest left; Weapon a little less)
+        private static readonly System.Collections.Generic.Dictionary<string, float> _RoomRight = new System.Collections.Generic.Dictionary<string, float>
+        {
+            { "Weapon", 154f }, { "Armor", 149f }, { "Accessories", 156f }, { "Medicine", 153f }, { "Gift", 149f },
+        };
+
+        //Name -> (font sizes added after fitting, pixels moved to the left). The bag and bottle icons are drawn narrower than
+        //their box, so these two names can come a little closer to them and be a little bigger.
+        private static readonly System.Collections.Generic.Dictionary<string, Vector2> _Adjust = new System.Collections.Generic.Dictionary<string, Vector2>
+        {
+            { "Accessories", new Vector2(2f, 4f) }, { "Medicine", new Vector2(2f, 4f) },
+        };
+
+        //Size, position and alignment each name has in the prefab
+        private static readonly System.Collections.Generic.Dictionary<Text, int> _OriginalSize = new System.Collections.Generic.Dictionary<Text, int>();
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Origin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+        private static readonly System.Collections.Generic.Dictionary<Text, TextAnchor> _Alignment = new System.Collections.Generic.Dictionary<Text, TextAnchor>();
+
+        public static void Fit(Text text)
+        {
+            if (text == null || text.text == null || !_RoomRight.TryGetValue(text.text.Trim(), out float roomRight) || !(TextUtil.OwningForm(text) is UIPawnshop))
+            {
+                return;
+            }
+            RectTransform button = text.GetComponentInParent<WGTabBtn>()?.transform as RectTransform;
+            Image icon = text.transform.parent != null ? text.transform.parent.GetComponent<Image>() : null;
+            if (button == null || icon == null || icon.transform == button)
+            {
+                return;
+            }
+
+            //The icon first: the name sits inside it and moves with it
+            IconSizer.Shrink(icon.rectTransform, IconScale);
+
+            RectTransform rect = text.rectTransform;
+            if (!_Origin.TryGetValue(rect, out Vector2 origin))
+            {
+                origin = rect.anchoredPosition;
+                _Origin[rect] = origin;
+                _OriginalSize[text] = text.fontSize;
+                _Alignment[text] = text.alignment;
+            }
+            rect.anchoredPosition = origin;
+            text.fontSize = _OriginalSize[text];
+            text.alignment = (TextAnchor)((int)_Alignment[text] / 3 * 3 + 1);
+            text.resizeTextForBestFit = false;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+
+            float pixel = button.lossyScale.x;
+            Vector3[] corners = new Vector3[4];
+            button.GetWorldCorners(corners);
+            float right = corners[0].x + roomRight * pixel;
+            icon.rectTransform.GetWorldCorners(corners);
+            float left = corners[2].x + Gap * pixel;
+            if (right <= left)
+            {
+                return;
+            }
+
+            float room = (right - left) / rect.lossyScale.x;
+            while (text.fontSize > MinSize && TextUtil.LinesWidth(text, text.text) > room)
+            {
+                text.fontSize--;
+            }
+            float move = 0f;
+            if (_Adjust.TryGetValue(text.text.Trim(), out Vector2 adjust))
+            {
+                text.fontSize = Mathf.Min(_OriginalSize[text], text.fontSize + (int)adjust.x);
+                move = adjust.y * pixel;
+            }
+            float center = rect.TransformPoint(rect.rect.center).x;
+            rect.position += new Vector3((left + right) / 2f - move - center, 0f, 0f);
+        }
+    }
+
+    /*
+     * Keeps a picture smaller than the game makes it, with its left edge where it was. Its size is changed, not its scale, so
+     * what sits inside it (a tab name) keeps its own size. Applied again right before each frame is drawn, so an animation
+     * that sets the picture's size or position does not undo it: a value the animation set becomes the new base, a value we
+     * set ourselves is left alone (so nothing shrinks twice).
+     */
+    internal static class IconSizer
+    {
+        private class Entry
+        {
+            public float Scale;
+            public Vector2 BaseSize;
+            public Vector2 BasePosition;
+            public Vector2 SetSize;
+            public Vector2 SetPosition;
+        }
+
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Entry> _Entries = new System.Collections.Generic.Dictionary<RectTransform, Entry>();
+        private static bool _Subscribed;
+
+        public static void Shrink(RectTransform icon, float scale)
+        {
+            if (!_Entries.TryGetValue(icon, out Entry entry))
+            {
+                entry = new Entry { Scale = scale, BaseSize = icon.sizeDelta, BasePosition = icon.anchoredPosition, SetSize = new Vector2(float.NaN, float.NaN) };
+                _Entries[icon] = entry;
+            }
+            Apply(icon, entry);
+            if (!_Subscribed)
+            {
+                Canvas.willRenderCanvases += ApplyAll;
+                _Subscribed = true;
+            }
+        }
+
+        private static void Apply(RectTransform icon, Entry entry)
+        {
+            if (icon.sizeDelta != entry.SetSize)
+            {
+                entry.BaseSize = icon.sizeDelta;
+            }
+            if (icon.anchoredPosition != entry.SetPosition)
+            {
+                entry.BasePosition = icon.anchoredPosition;
+            }
+            entry.SetSize = entry.BaseSize * entry.Scale;
+            //The size changes around the pivot, the left edge goes back to where it was
+            entry.SetPosition = entry.BasePosition - new Vector2(icon.pivot.x * (entry.BaseSize.x - entry.SetSize.x), 0f);
+            if (icon.sizeDelta != entry.SetSize)
+            {
+                icon.sizeDelta = entry.SetSize;
+            }
+            if (icon.anchoredPosition != entry.SetPosition)
+            {
+                icon.anchoredPosition = entry.SetPosition;
+            }
+        }
+
+        private static readonly System.Collections.Generic.List<RectTransform> _Gone = new System.Collections.Generic.List<RectTransform>();
+
+        private static void ApplyAll()
+        {
+            foreach (var pair in _Entries)
+            {
+                //An icon destroyed with its screen compares equal to null
+                if (pair.Key == null)
+                {
+                    _Gone.Add(pair.Key);
+                }
+                else if (pair.Key.gameObject.activeInHierarchy)
+                {
+                    Apply(pair.Key, pair.Value);
+                }
+            }
+            foreach (RectTransform gone in _Gone)
+            {
+                _Entries.Remove(gone);
+            }
+            _Gone.Clear();
+        }
+    }
+
+    //Refine Medicine: the master's speech bubble broke in the middle of words ("It / 's a hassle", the game turns the spaces
+    //into non-breaking spaces). It wraps at spaces again and shrinks if it would not fit the bubble.
+    [HarmonyPatch(typeof(WGElixirIntroduction), "UpdateWidget", new[] { typeof(ElixirIntroductionInfo) })]
+    public class WGElixirIntroduction_UpdateWidget_Hook
+    {
+        private const int MinSize = 14;
+
+        public static void Postfix(WGText ___talk)
+        {
+            TextUtil.ShrinkToBox(TextUtil.TextOf(___talk), MinSize);
         }
     }
 
