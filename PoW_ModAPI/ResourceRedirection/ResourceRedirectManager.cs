@@ -70,10 +70,27 @@ namespace ModAPI
             return Paths.GameRootPath + Path.DirectorySeparatorChar + GetRedirect(path) + Path.DirectorySeparatorChar + path;
         }
 
+        //A variant of the images to use where a mod has one, set by a mod before the images are loaded (empty: none).
+        //With "Christmas", Image/ui/uimain/Main_title_Christmas.png is used in place of Image/ui/uimain/Main_title.png.
+        public string ImageVariant { get; set; } = "";
+
+        //The variant of an image path if the mods have that file, otherwise the path itself
+        private string VariantPath(string path)
+        {
+            if (string.IsNullOrEmpty(ImageVariant))
+            {
+                return path;
+            }
+
+            string extension = Path.GetExtension(path);
+            string variant = path.Substring(0, path.Length - extension.Length) + "_" + ImageVariant + extension;
+            return ExistsRedirect(variant) ? variant : path;
+        }
+
         private Texture2D ReadTexture(string path)
         {
             Texture2D texture2D = new Texture2D(2, 2);
-            texture2D.LoadImage(File.ReadAllBytes(GetRedirectedFilePath(path)));
+            texture2D.LoadImage(File.ReadAllBytes(GetRedirectedFilePath(VariantPath(path))));
             return texture2D;
         }
 
