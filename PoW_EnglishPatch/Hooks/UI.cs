@@ -2367,13 +2367,164 @@ namespace EnglishPatch.Hooks
             yield return AccessTools.Method(typeof(WgBattleRound), "UpdateCondition");
         }
 
-        public static void Postfix(Text ___text_current)
+        public static void Postfix(WgBattleRound __instance, Text ___text_current, Text ___text_win_lose, GameObject ___tipObj)
         {
             Font font = TextUtil.CombatFont;
             if (font != null && ___text_current != null)
             {
                 ___text_current.font = font;
             }
+
+            if (___text_current != null)
+            {
+                Replacer.Run(__instance, () => TurnFirst(__instance, ___text_current, ___text_win_lose, ___tipObj));
+            }
+        }
+
+        /*
+         * The round shows "1  Turn", the number before a bigger "Turn". It now reads "Turn 1": the label starts where the
+         * number started, the number follows it after a space, and sits on the same baseline.
+         */
+        private const float SpaceWidth = 0.3f;
+
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Origin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+        //Made when first used, not when the hook is set up
+        private static TextGenerator _Gen;
+        private static TextGenerator _Generator => _Gen ?? (_Gen = new TextGenerator());
+
+        private static void TurnFirst(WgBattleRound round, Text number, Text winLose, GameObject tip)
+        {
+            Text label = LabelOf(round, number, winLose, tip);
+            if (label == null || number.rectTransform.parent == null || label.rectTransform.parent == null)
+            {
+                return;
+            }
+
+            LayoutGroup layout = number.transform.parent.GetComponent<LayoutGroup>();
+            if (layout != null && label.transform.parent == number.transform.parent)
+            {
+                //A layout places them side by side, putting the label first is enough
+                if (label.transform.GetSiblingIndex() > number.transform.GetSiblingIndex())
+                {
+                    label.transform.SetSiblingIndex(number.transform.GetSiblingIndex());
+                }
+                return;
+            }
+
+            Reset(number.rectTransform);
+            Reset(label.rectTransform);
+            Rect? numberInk = Ink(number);
+            Rect? labelInk = Ink(label);
+            float? numberBase = Baseline(number);
+            float? labelBase = Baseline(label);
+            if (numberInk == null || labelInk == null || numberBase == null || labelBase == null)
+            {
+                return;
+            }
+
+            float left = Mathf.Min(numberInk.Value.xMin, labelInk.Value.xMin);
+            float space = Mathf.Abs(label.rectTransform.TransformVector(new Vector3(label.fontSize * SpaceWidth, 0f, 0f)).x);
+            Vector3 labelMove = new Vector3(left - labelInk.Value.xMin, 0f, 0f);
+            Vector3 numberMove = new Vector3(left + labelInk.Value.width + space - numberInk.Value.xMin, labelBase.Value - numberBase.Value, 0f);
+            //One inside the other moves along with it
+            if (label.transform.IsChildOf(number.transform))
+            {
+                labelMove -= numberMove;
+            }
+            else if (number.transform.IsChildOf(label.transform))
+            {
+                numberMove -= labelMove;
+            }
+            Move(label, labelMove);
+            Move(number, numberMove);
+        }
+
+        //The "Turn" text: the closest other text of the round on the same height as the number, outside the conditions
+        private static Text LabelOf(WgBattleRound round, Text number, Text winLose, GameObject tip)
+        {
+            Vector3[] own = new Vector3[4];
+            number.rectTransform.GetWorldCorners(own);
+            Vector3[] corners = new Vector3[4];
+            Text best = null;
+            float bestDistance = float.MaxValue;
+            foreach (Text other in round.GetComponentsInChildren<Text>())
+            {
+                if (other == number || other == winLose || (tip != null && other.transform.IsChildOf(tip.transform))
+                    || string.IsNullOrEmpty(other.text) || other.text.Trim().Length < 2)
+                {
+                    continue;
+                }
+                other.rectTransform.GetWorldCorners(corners);
+                if (corners[1].y <= own[0].y || corners[0].y >= own[1].y)
+                {
+                    continue;
+                }
+                float distance = Mathf.Abs((corners[0].x + corners[2].x) / 2f - (own[0].x + own[2].x) / 2f);
+                if (distance < bestDistance)
+                {
+                    best = other;
+                    bestDistance = distance;
+                }
+            }
+            return best;
+        }
+
+        private static void Reset(RectTransform rect)
+        {
+            if (!_Origin.TryGetValue(rect, out Vector2 origin))
+            {
+                origin = rect.anchoredPosition;
+                _Origin[rect] = origin;
+            }
+            rect.anchoredPosition = origin;
+        }
+
+        private static void Move(Text text, Vector3 world)
+        {
+            RectTransform rect = text.rectTransform;
+            Vector3 local = rect.parent.InverseTransformVector(world);
+            rect.anchoredPosition += new Vector2(local.x, local.y);
+        }
+
+        //World box of the drawn letters
+        private static Rect? Ink(Text text)
+        {
+            RectTransform rect = text.rectTransform;
+            _Generator.Populate(text.text, text.GetGenerationSettings(rect.rect.size));
+            System.Collections.Generic.IList<UIVertex> verts = _Generator.verts;
+            if (verts.Count == 0 || text.pixelsPerUnit <= 0f)
+            {
+                return null;
+            }
+            Vector2 min = new Vector2(float.MaxValue, float.MaxValue), max = new Vector2(float.MinValue, float.MinValue);
+            foreach (UIVertex vert in verts)
+            {
+                min = Vector2.Min(min, vert.position);
+                max = Vector2.Max(max, vert.position);
+            }
+            Vector3 a = rect.TransformPoint(min / text.pixelsPerUnit);
+            Vector3 b = rect.TransformPoint(max / text.pixelsPerUnit);
+            return Rect.MinMaxRect(Mathf.Min(a.x, b.x), Mathf.Min(a.y, b.y), Mathf.Max(a.x, b.x), Mathf.Max(a.y, b.y));
+        }
+
+        //World height of the line the text is written on: the bottom of an "H" laid out like it
+        private static float? Baseline(Text text)
+        {
+            RectTransform rect = text.rectTransform;
+            TextGenerationSettings settings = text.GetGenerationSettings(rect.rect.size);
+            settings.richText = false;
+            _Generator.Populate("H", settings);
+            System.Collections.Generic.IList<UIVertex> verts = _Generator.verts;
+            if (verts.Count < 4 || text.pixelsPerUnit <= 0f)
+            {
+                return null;
+            }
+            float bottom = float.MaxValue;
+            for (int i = 0; i < 4; i++)
+            {
+                bottom = Mathf.Min(bottom, verts[i].position.y);
+            }
+            return rect.TransformPoint(new Vector3(0f, bottom / text.pixelsPerUnit, 0f)).y;
         }
     }
 
@@ -2955,8 +3106,7 @@ namespace EnglishPatch.Hooks
 
             Place(talents);
             //The tab slides in and its layout is only finished in the next frames, until then the places measured can be off
-            TraitPlacer placer = __instance.GetComponent<TraitPlacer>() ?? __instance.gameObject.AddComponent<TraitPlacer>();
-            placer.Restart(talents);
+            Replacer.Run(__instance, () => Place(talents));
         }
 
         //Puts the names and descriptions where they belong, from where the game put them (can be done again at any time)
@@ -3284,29 +3434,253 @@ namespace EnglishPatch.Hooks
         }
     }
 
-    //Places the trait texts again every frame for a moment after the item is updated, while the Status tab slides in
-    public class TraitPlacer : MonoBehaviour
+    /*
+     * Does a placing again every frame for a moment after a widget is updated: screens slide in and finish their layout in
+     * the next frames, until then the places measured can be off. The placing must give the same result when done again.
+     */
+    public class Replacer : MonoBehaviour
     {
         private const float Duration = 1f;
 
-        private System.Array _Talents;
+        private System.Action _Place;
         private float _Until;
 
-        public void Restart(System.Array talents)
+        public static void Run(Component widget, System.Action place)
         {
-            _Talents = talents;
-            _Until = Time.unscaledTime + Duration;
-            enabled = true;
+            Replacer replacer = widget.GetComponent<Replacer>();
+            if (replacer == null)
+            {
+                replacer = widget.gameObject.AddComponent<Replacer>();
+            }
+            replacer._Place = place;
+            replacer._Until = Time.unscaledTime + Duration;
+            replacer.enabled = true;
         }
 
         private void LateUpdate()
         {
-            if (_Talents == null || Time.unscaledTime > _Until)
+            if (_Place == null || Time.unscaledTime > _Until)
             {
                 enabled = false;
                 return;
             }
-            WGTalentItem_UpdateWidget_Hook.Place(_Talents);
+            try
+            {
+                _Place();
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError("[EnglishPatch] Could not place " + name + ": " + e.Message);
+                enabled = false;
+            }
+        }
+    }
+
+    /*
+     * Combat skill bar: the key numbers (1 to 9) under the buttons sat off the middle of the dark badge behind them.
+     * Each one is put in the middle of its badge (its drawn digit, both ways), and the badge is a little less see-through.
+     */
+    /*
+     * Tooltip texts (the skill Effect in combat, buffs, traits): the row is made exactly as high as the text, and a line
+     * of text has room for tall letters above it but little below, so the text sat low: a big gap under the heading
+     * above it and almost none at the bottom of the tooltip. The row now keeps a set gap above the first line's letters
+     * and a bigger one below the last line's.
+     */
+    [HarmonyPatch(typeof(WGTip), "SetTipType")]
+    public class WGTip_SetTipType_Hook
+    {
+        private const float TopGap = 4f;
+        private const float BottomGap = 14f;
+
+        private static readonly TextGenerator _Generator = new TextGenerator();
+
+        public static void Postfix(WGTitleValue titlevalue, WGTip.TipType type)
+        {
+            if (titlevalue == null || (type != WGTip.TipType.Context && type != WGTip.TipType.TraitContext))
+            {
+                return;
+            }
+            Text text = titlevalue.Title;
+            if (text == null || string.IsNullOrEmpty(text.text) || text.pixelsPerUnit <= 0f)
+            {
+                return;
+            }
+
+            //Drawn from the top of a tall enough area, where its letters start and end below that top
+            RectTransform rect = text.rectTransform;
+            float width = rect.rect.width;
+            TextGenerationSettings settings = text.GetGenerationSettings(new Vector2(width, text.preferredHeight + 200f));
+            settings.textAnchor = TextAnchor.UpperLeft;
+            _Generator.Populate(text.text, settings);
+            System.Collections.Generic.IList<UIVertex> verts = _Generator.verts;
+            if (verts.Count == 0)
+            {
+                return;
+            }
+            float bottom = float.MaxValue, top = float.MinValue;
+            foreach (UIVertex vert in verts)
+            {
+                bottom = Mathf.Min(bottom, vert.position.y);
+                top = Mathf.Max(top, vert.position.y);
+            }
+            float areaTop = settings.generationExtents.y * (1f - rect.pivot.y) * text.pixelsPerUnit;
+            float inkTop = (areaTop - top) / text.pixelsPerUnit;
+            float inkHeight = (top - bottom) / text.pixelsPerUnit;
+
+            //Row as high as the letters and the gaps, the text from the top of the row with its letters TopGap below it
+            titlevalue.SetHihgt(Mathf.CeilToInt(TopGap + inkHeight + BottomGap));
+            text.alignment = (TextAnchor)((int)text.alignment % 3);
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)titlevalue.transform);
+
+            Vector3[] row = new Vector3[4];
+            ((RectTransform)titlevalue.transform).GetWorldCorners(row);
+            Vector3[] own = new Vector3[4];
+            rect.GetWorldCorners(own);
+            //Where the text's top should be, in world units: TopGap below the row top, raised by the room above its letters
+            float wanted = row[1].y - Mathf.Abs(rect.TransformVector(new Vector3(0f, TopGap - inkTop, 0f)).y) * Mathf.Sign(TopGap - inkTop);
+            if (rect.parent != null)
+            {
+                rect.anchoredPosition += new Vector2(0f, rect.parent.InverseTransformVector(new Vector3(0f, wanted - own[1].y, 0f)).y);
+            }
+        }
+    }
+
+    [HarmonyPatch]
+    public class UIBattle_SkillHotKeys_Hook
+    {
+        //How much more opaque the badges get
+        private const float BadgeAlpha = 0.2f;
+
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Origin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+        private static readonly System.Collections.Generic.Dictionary<Image, float> _Alpha = new System.Collections.Generic.Dictionary<Image, float>();
+        //Made when first used, not when the hook is set up
+        private static TextGenerator _Gen;
+        private static TextGenerator _Generator => _Gen ?? (_Gen = new TextGenerator());
+
+        //The numbers are shown again when the skill bar opens or changes, and when the keys are refreshed
+        public static System.Collections.Generic.IEnumerable<MethodBase> TargetMethods()
+        {
+            yield return AccessTools.Method(typeof(UIBattle), "OpenMenu");
+            yield return AccessTools.Method(typeof(UIBattle), "UpdateMenu");
+            yield return AccessTools.Method(typeof(UIBattle), "RefreshKeyHint");
+            yield return AccessTools.Method(typeof(UIBattle), "KeyHintShow");
+        }
+
+        public static void Postfix(UIBattle __instance, System.Collections.Generic.List<WGText> ___SkillHotKeys)
+        {
+            if (___SkillHotKeys == null)
+            {
+                return;
+            }
+            Text[] texts = ___SkillHotKeys.ConvertAll(TextUtil.TextOf).ToArray();
+            Replacer.Run(__instance, () => Place(texts));
+        }
+
+        private static void Place(Text[] texts)
+        {
+            foreach (Text text in texts)
+            {
+                if (text == null || !text.isActiveAndEnabled || string.IsNullOrEmpty(text.text))
+                {
+                    continue;
+                }
+
+                RectTransform rect = text.rectTransform;
+                if (!_Origin.TryGetValue(rect, out Vector2 origin))
+                {
+                    origin = rect.anchoredPosition;
+                    _Origin[rect] = origin;
+                }
+                rect.anchoredPosition = origin;
+
+                Image badge = BadgeOf(text);
+                if (badge == null || rect.parent == null)
+                {
+                    continue;
+                }
+                if (!_Alpha.TryGetValue(badge, out float alpha))
+                {
+                    alpha = badge.color.a;
+                    _Alpha[badge] = alpha;
+                }
+                Color color = badge.color;
+                color.a = Mathf.Min(1f, alpha + BadgeAlpha);
+                badge.color = color;
+
+                Vector3? ink = InkCenter(text);
+                if (ink == null)
+                {
+                    continue;
+                }
+                Vector3[] corners = new Vector3[4];
+                badge.rectTransform.GetWorldCorners(corners);
+                Vector3 middle = (corners[0] + corners[2]) / 2f;
+                Vector3 shift = rect.parent.InverseTransformVector(middle - ink.Value);
+                rect.anchoredPosition = origin + new Vector2(shift.x, shift.y);
+            }
+        }
+
+        //The smallest image around the number, the number itself or one next to it, no more than a few times its size
+        private static Image BadgeOf(Text text)
+        {
+            Vector3[] own = new Vector3[4];
+            text.rectTransform.GetWorldCorners(own);
+            Vector3 middle = (own[0] + own[2]) / 2f;
+            float size = Mathf.Abs(text.rectTransform.TransformVector(new Vector3(0f, text.fontSize, 0f)).y);
+            Vector3[] corners = new Vector3[4];
+            Image best = null;
+            float bestArea = float.MaxValue;
+            Transform parent = text.transform.parent;
+            if (parent == null)
+            {
+                return null;
+            }
+            var candidates = new System.Collections.Generic.List<Transform> { parent };
+            foreach (Transform child in parent)
+            {
+                candidates.Add(child);
+            }
+            foreach (Transform t in candidates)
+            {
+                Image image = t.GetComponent<Image>();
+                if (image == null || !image.isActiveAndEnabled)
+                {
+                    continue;
+                }
+                image.rectTransform.GetWorldCorners(corners);
+                float width = corners[2].x - corners[0].x, height = corners[1].y - corners[0].y;
+                if (middle.x < corners[0].x || middle.x > corners[2].x || middle.y < corners[0].y || middle.y > corners[1].y
+                    || width > size * 4f || height > size * 4f)
+                {
+                    continue;
+                }
+                if (width * height < bestArea)
+                {
+                    best = image;
+                    bestArea = width * height;
+                }
+            }
+            return best;
+        }
+
+        //World middle of the drawn letters of a text
+        private static Vector3? InkCenter(Text text)
+        {
+            RectTransform rect = text.rectTransform;
+            _Generator.Populate(text.text, text.GetGenerationSettings(rect.rect.size));
+            System.Collections.Generic.IList<UIVertex> verts = _Generator.verts;
+            if (verts.Count == 0 || text.pixelsPerUnit <= 0f)
+            {
+                return null;
+            }
+            Vector2 min = new Vector2(float.MaxValue, float.MaxValue), max = new Vector2(float.MinValue, float.MinValue);
+            foreach (UIVertex vert in verts)
+            {
+                min = Vector2.Min(min, vert.position);
+                max = Vector2.Max(max, vert.position);
+            }
+            return rect.TransformPoint((min + max) / 2f / text.pixelsPerUnit);
         }
     }
 
