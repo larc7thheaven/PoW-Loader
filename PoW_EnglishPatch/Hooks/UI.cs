@@ -669,6 +669,11 @@ namespace EnglishPatch.Hooks
             ___text.font = dialogue ? TextUtil.DialogueFont : TextUtil.UIFont;
             ___text.fontSize = dialogue && EnglishPatch.DialogueFontSize > 0 ? EnglishPatch.DialogueFontSize : 20;
             TextUtil.FitWrapping(___text);
+            //The dialogue lines are justified, both margins straight
+            if (dialogue)
+            {
+                TextUtil.Justify(___text);
+            }
         }
     }
 
@@ -699,7 +704,7 @@ namespace EnglishPatch.Hooks
          * text area huge (lines no longer wrapped and ran off the screen). The size set here is kept, so a message that
          * finds that size again is not widened twice, and nothing adds up.
          */
-        private const float WiderLeft = 77f;
+        private const float WiderLeft = 87f;
 
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Widened = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
 
@@ -722,6 +727,7 @@ namespace EnglishPatch.Hooks
                 text.font = TextUtil.DialogueFont;
                 text.fontSize = EnglishPatch.DialogueFontSize > 0 ? EnglishPatch.DialogueFontSize : 20;
                 TextUtil.FitWrapping(text);
+                TextUtil.Justify(text);
             }
         }
     }
