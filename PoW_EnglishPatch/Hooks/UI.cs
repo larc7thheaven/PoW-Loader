@@ -692,19 +692,23 @@ namespace EnglishPatch.Hooks
                 return;
             }
             TextUtil.Prune(_Widened);
-            rect.sizeDelta += new Vector2(WiderLeft, 0f);
-            rect.anchoredPosition -= new Vector2(WiderLeft * (1f - rect.pivot.x) * rect.localScale.x, 0f);
+            //Left edge WiderLeft further left, right edge NarrowerRight further left
+            float wider = WiderLeft - NarrowerRight;
+            rect.sizeDelta += new Vector2(wider, 0f);
+            rect.anchoredPosition -= new Vector2((NarrowerRight + wider * (1f - rect.pivot.x)) * rect.localScale.x, 0f);
             _Widened[rect] = rect.sizeDelta;
         }
 
         /*
-         * The text started far right of the left end of the talk box, with a wide empty strip before it. The text area is
-         * made WiderLeft wider and moved so its right edge stays, so the lines start further left.
+         * The text started far right of the left end of the talk box, with a wide empty strip before it. The text area's
+         * left edge moves WiderLeft to the left, so the lines start further left, and its right edge NarrowerRight.
          * Done relative to the area as it is, once: an area remembered while the box was still being set up made the
          * text area huge (lines no longer wrapped and ran off the screen). The size set here is kept, so a message that
          * finds that size again is not widened twice, and nothing adds up.
          */
         private const float WiderLeft = 137f;
+        //The right margin, a little more room before the arrow at the end of the box
+        private const float NarrowerRight = 20f;
 
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Widened = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
 
