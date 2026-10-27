@@ -2010,7 +2010,12 @@ namespace EnglishPatch.Hooks
             rect.anchoredPosition = origin + new Vector2(0f, CapsCenterOffset(text) ?? text.fontSize * LabelRaise);
         }
 
-        //How far the capitals of a one line text are below the middle of its box, null when Unity lays out nothing
+        /*
+         * How far the letters of a one line text are below the middle of its box, null when Unity lays out nothing.
+         * The labels are mostly lower case, so what looks centered is between the capitals (baseline to top of H) and the
+         * lower case letters (baseline to top of x): the middle of both bands is put in the middle of the box. That is where
+         * the Arial labels already looked right, and other fonts get the same placement from their own letters.
+         */
         private static float? CapsCenterOffset(Text text)
         {
             Rect box = text.rectTransform.rect;
@@ -2020,9 +2025,23 @@ namespace EnglishPatch.Hooks
             settings.textAnchor = TextAnchor.MiddleCenter;
             settings.richText = false;
 
-            _CapsGenerator.Populate("H", settings);
+            float? caps = GlyphMiddle("H", settings, text.pixelsPerUnit);
+            float? lower = GlyphMiddle("x", settings, text.pixelsPerUnit);
+            if (caps == null || lower == null)
+            {
+                return null;
+            }
+
+            //The vertices are relative to the pivot of the box
+            return box.center.y - (caps.Value + lower.Value) / 2f;
+        }
+
+        //Middle height of one letter laid out with these settings, in the units of the box
+        private static float? GlyphMiddle(string letter, TextGenerationSettings settings, float pixelsPerUnit)
+        {
+            _CapsGenerator.Populate(letter, settings);
             System.Collections.Generic.IList<UIVertex> verts = _CapsGenerator.verts;
-            if (verts.Count < 4 || text.pixelsPerUnit <= 0f)
+            if (verts.Count < 4 || pixelsPerUnit <= 0f)
             {
                 return null;
             }
@@ -2033,10 +2052,7 @@ namespace EnglishPatch.Hooks
                 bottom = Mathf.Min(bottom, verts[i].position.y);
                 top = Mathf.Max(top, verts[i].position.y);
             }
-            float capsMiddle = (bottom + top) / 2f / text.pixelsPerUnit;
-
-            //The vertices are relative to the pivot of the box
-            return box.center.y - capsMiddle;
+            return (bottom + top) / 2f / pixelsPerUnit;
         }
 
         private const float LabelRaise = 0.1f;
