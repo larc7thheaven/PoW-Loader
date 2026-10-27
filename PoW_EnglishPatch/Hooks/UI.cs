@@ -747,6 +747,42 @@ namespace EnglishPatch.Hooks
     }
 
     /*
+     * The label under a buff or debuff icon in combat sits on a dark tab (OverlayIcon), which reads poorly behind the English
+     * labels. Its images are hidden (HideBuffLabelBackground in the config file), the round icon and the label text stay.
+     * Done whenever an icon is set up or its label changes, the icons are reused for every buff.
+     */
+    [HarmonyPatch]
+    public class WGBufferIcon_LabelBackground_Hook
+    {
+        private static readonly AccessTools.FieldRef<WGBufferIcon, GameObject> _Tab = AccessTools.FieldRefAccess<WGBufferIcon, GameObject>("OverlayIcon");
+        private static readonly AccessTools.FieldRef<WGBufferIcon, Image> _Icon = AccessTools.FieldRefAccess<WGBufferIcon, Image>("Icon");
+
+        public static System.Collections.Generic.IEnumerable<MethodBase> TargetMethods()
+        {
+            yield return AccessTools.Method(typeof(WGBufferIcon), "SetBufferOverlay");
+            yield return AccessTools.Method(typeof(WGBufferIcon), "SetIcon");
+        }
+
+        public static void Postfix(WGBufferIcon __instance)
+        {
+            GameObject tab = _Tab(__instance);
+            if (!EnglishPatch.HideBuffLabelBackground || tab == null)
+            {
+                return;
+            }
+
+            Image icon = _Icon(__instance);
+            foreach (Image image in tab.GetComponentsInChildren<Image>(true))
+            {
+                if (image != icon)
+                {
+                    image.enabled = false;
+                }
+            }
+        }
+    }
+
+    /*
      * The label under a stacking buff icon in combat is "{name}\n{level}" ("Confused" in orange, "Lv 1" below). Its box is as
      * wide as the icon, so the name broke in the middle ("Conf / used") and pushed the level out of the box.
      * Each line stays whole now, and the label shrinks until its widest line fits the space between two icons (a little
@@ -2039,10 +2075,17 @@ namespace EnglishPatch.Hooks
         }
     }
 
-    //The turn number of the battle screen kept the game's font, it gets the CombatFont directly every time the turn changes
-    [HarmonyPatch(typeof(WgBattleRound), "UpdateRound")]
+    //The turn number of the battle screen kept the game's font, it gets the CombatFont directly every time the turn changes.
+    //Turn 1 is shown before the first turn change, so also when the battle sets up its victory conditions.
+    [HarmonyPatch]
     public class WgBattleRound_UpdateRound_Hook
     {
+        public static System.Collections.Generic.IEnumerable<MethodBase> TargetMethods()
+        {
+            yield return AccessTools.Method(typeof(WgBattleRound), "UpdateRound");
+            yield return AccessTools.Method(typeof(WgBattleRound), "UpdateCondition");
+        }
+
         public static void Postfix(Text ___text_current)
         {
             Font font = TextUtil.CombatFont;
