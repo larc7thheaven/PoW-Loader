@@ -2008,6 +2008,40 @@ namespace EnglishPatch.Hooks
     }
 
     /*
+     * The main life screen (UINurturance: energy text, "Martial arts training and reading bonus!", the stats total) and the date
+     * next to it (UIDate: "Year 2 Month 6", "Mid") still had texts in the game's own font. They get the English font from the
+     * config file (Font, Arial by default) like the rest of the English texts. Done every time the screen is shown.
+     */
+    [HarmonyPatch(typeof(UIForm), "Show")]
+    public class UIForm_Show_LifeFont_Hook
+    {
+        //Name Unity gives the game's font
+        private const string GameFont = "Kaiu";
+
+        private static readonly System.Collections.Generic.HashSet<string> _Forms = new System.Collections.Generic.HashSet<string>
+        {
+            "UINurturance", "UIDate"
+        };
+
+        public static void Postfix(UIForm __instance)
+        {
+            if (__instance == null || !_Forms.Contains(__instance.GetType().Name))
+            {
+                return;
+            }
+
+            Font font = TextUtil.UIFont;
+            foreach (Text text in __instance.GetComponentsInChildren<Text>(true))
+            {
+                if (text.font != null && text.font.name == GameFont)
+                {
+                    text.font = font;
+                }
+            }
+        }
+    }
+
+    /*
      * The "Info", "Criteria" and "Effect" titles of the gear selection popup and of the item and gear popup in combat:
      * "Criteria" (24-25 in the prefab) ran into the diamonds at both ends of its banner. All three get the same smaller size.
      * These popups have two copies of the panel (StaticCanvas/PropsBG draws the visible titles, DynamicCanvas/PropsIntroduction
