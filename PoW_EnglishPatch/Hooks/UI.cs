@@ -2397,6 +2397,7 @@ namespace EnglishPatch.Hooks
             TextUtil.Prune(_AreaOrigin);
             TextUtil.Prune(_Label);
             TextUtil.Prune(_Logo);
+            TextUtil.Prune(_Band);
 
             Font font = TextUtil.CombatFont;
             if (font != null && ___text_current != null)
@@ -2486,6 +2487,7 @@ namespace EnglishPatch.Hooks
         //"Turn" and the crossed swords of each round widget, looked for once
         private static readonly System.Collections.Generic.Dictionary<WgBattleRound, Text> _Label = new System.Collections.Generic.Dictionary<WgBattleRound, Text>();
         private static readonly System.Collections.Generic.Dictionary<WgBattleRound, Image> _Logo = new System.Collections.Generic.Dictionary<WgBattleRound, Image>();
+        private static readonly System.Collections.Generic.Dictionary<WgBattleRound, RectTransform> _Band = new System.Collections.Generic.Dictionary<WgBattleRound, RectTransform>();
 
         private static void TurnFirst(WgBattleRound round, Text number, Text winLose, GameObject tip)
         {
@@ -2543,8 +2545,28 @@ namespace EnglishPatch.Hooks
                 left = (corners[0].x + corners[2].x) / 2f - width / 2f;
             }
 
-            Vector3 labelMove = new Vector3(left - labelInk.Value.xMin, 0f, 0f);
-            Vector3 numberMove = new Vector3(left + labelInk.Value.width + space - numberInk.Value.xMin, labelBase.Value - numberBase.Value, 0f);
+            //Top to bottom in the middle of the dark band behind it: the letters of "Turn", capitals' top to baseline
+            float up = 0f;
+            if (!_Band.TryGetValue(round, out RectTransform band) || band == null || !band.gameObject.activeInHierarchy)
+            {
+                band = WGTalentItem_UpdateWidget_Hook.BoxOf(label);
+                Vector3[] edges = new Vector3[4];
+                band.GetWorldCorners(edges);
+                //The label's own area or a big background is not the band
+                if (band == label.rectTransform || edges[1].y - edges[0].y > labelInk.Value.height * 3f)
+                {
+                    band = null;
+                }
+                _Band[round] = band;
+            }
+            float? letters = SkillBarNames.LettersMiddle(label);
+            if (band != null && letters != null)
+            {
+                up = SkillBarNames.Middle(band) - letters.Value;
+            }
+
+            Vector3 labelMove = new Vector3(left - labelInk.Value.xMin, up, 0f);
+            Vector3 numberMove = new Vector3(left + labelInk.Value.width + space - numberInk.Value.xMin, labelBase.Value - numberBase.Value + up, 0f);
             //One inside the other moves along with it
             if (label.transform.IsChildOf(number.transform))
             {
@@ -3675,6 +3697,82 @@ namespace EnglishPatch.Hooks
      * line, so a one line name and a two line name have the same middle, and letters going below the line do not count.
      * The line is the average middle of the name areas.
      */
+    /*
+     * Names under icons that take one or two lines (battle status: inner art, gear and skills): a one line name sat at the
+     * top of the room for two. Each name is put in the middle of its own area, measured from the top of the capitals of
+     * its first line to the baseline of its last line, so one and two line names share the same middle.
+     */
+    internal static class LetterCentering
+    {
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Origin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+
+        public static void Center(Text text)
+        {
+            if (text == null || !text.isActiveAndEnabled || string.IsNullOrEmpty(text.text))
+            {
+                return;
+            }
+            RectTransform rect = text.rectTransform;
+            if (!_Origin.TryGetValue(rect, out Vector2 origin))
+            {
+                TextUtil.Prune(_Origin);
+                origin = rect.anchoredPosition;
+                _Origin[rect] = origin;
+            }
+            rect.anchoredPosition = origin;
+
+            float? middle = SkillBarNames.LettersMiddle(text);
+            if (middle == null || rect.parent == null)
+            {
+                return;
+            }
+            float shift = SkillBarNames.Middle(rect) - middle.Value;
+            rect.anchoredPosition += new Vector2(0f, rect.parent.InverseTransformVector(new Vector3(0f, shift, 0f)).y);
+        }
+    }
+
+    //The battle status window: inner art, gear and skill names in the middle of their areas (see LetterCentering)
+    [HarmonyPatch]
+    public class UIBattleStatus_CenterNames_Hook
+    {
+        private static readonly AccessTools.FieldRef<WGPropsIntroduction, WGText> _PropsName = AccessTools.FieldRefAccess<WGPropsIntroduction, WGText>("propsName");
+        private static readonly AccessTools.FieldRef<WGSkillBtn, Text> _SkillName = AccessTools.FieldRefAccess<WGSkillBtn, Text>("skill_name");
+
+        //After the hooks that size the names (UIBattleStatus_UpdateView_Hook, UIBattleStatus_SetAllButton_Hook)
+        public static System.Collections.Generic.IEnumerable<MethodBase> TargetMethods()
+        {
+            yield return AccessTools.Method(typeof(UIBattleStatus), "UpdateView");
+            yield return AccessTools.Method(typeof(UIBattleStatus), "set_all_button");
+        }
+
+        [HarmonyPriority(Priority.Low)]
+        public static void Postfix(UIBattleStatus __instance)
+        {
+            var names = new System.Collections.Generic.List<Text>();
+            foreach (WGPropsIntroduction slot in new[] { __instance.Mantra, __instance.Weapon, __instance.Cloth, __instance.Jewelry })
+            {
+                if (slot != null)
+                {
+                    names.Add(TextUtil.TextOf(_PropsName(slot)));
+                }
+            }
+            foreach (WGSkillBtn button in __instance.Skill_Buttons ?? new WGSkillBtn[0])
+            {
+                names.Add(button == null ? null : _SkillName(button));
+            }
+            names.Add(__instance.Special_Skill_Button == null ? null : _SkillName(__instance.Special_Skill_Button));
+
+            Text[] texts = names.ToArray();
+            Replacer.Run(__instance, () =>
+            {
+                foreach (Text text in texts)
+                {
+                    LetterCentering.Center(text);
+                }
+            });
+        }
+    }
+
     internal static class SkillBarNames
     {
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Origin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
@@ -3781,7 +3879,7 @@ namespace EnglishPatch.Hooks
         }
 
         //World height of the middle of a rect
-        private static float Middle(RectTransform rect)
+        internal static float Middle(RectTransform rect)
         {
             Vector3[] corners = new Vector3[4];
             rect.GetWorldCorners(corners);
@@ -3789,7 +3887,7 @@ namespace EnglishPatch.Hooks
         }
 
         //World height of the middle between the capitals' top of the first line and the baseline of the last one
-        private static float? LettersMiddle(Text text)
+        internal static float? LettersMiddle(Text text)
         {
             RectTransform rect = text.rectTransform;
             if (text.pixelsPerUnit <= 0f)
@@ -3842,6 +3940,25 @@ namespace EnglishPatch.Hooks
         private const float TopGap = 4f;
         private const float BottomGap = 14f;
 
+        /*
+         * The element wheel tip ("Element changed to Metal..."): the text started far from the left edge of the tip, past
+         * its dark border, and was left aligned. It starts closer to the border, using the room, and is justified.
+         */
+        private const float ElementTipWider = 42f;
+
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, float> _Left = new System.Collections.Generic.Dictionary<RectTransform, float>();
+
+        private static void ElementTip(Text text, RectTransform rect)
+        {
+            if (!_Left.TryGetValue(rect, out float left))
+            {
+                left = rect.offsetMin.x;
+                _Left[rect] = left;
+            }
+            rect.offsetMin = new Vector2(left - ElementTipWider, rect.offsetMin.y);
+            TextUtil.Justify(text);
+        }
+
         private static readonly TextGenerator _Generator = new TextGenerator();
 
         public static void Postfix(WGTitleValue titlevalue, WGTip.TipType type)
@@ -3856,8 +3973,18 @@ namespace EnglishPatch.Hooks
                 return;
             }
 
-            //Drawn from the top of a tall enough area, where its letters start and end below that top
+            //Words wrap at spaces, the game's non-breaking spaces made lines break inside words ("fro / m")
+            if (text.text.IndexOf(' ') >= 0)
+            {
+                text.text = text.text.Replace(' ', ' ');
+            }
             RectTransform rect = text.rectTransform;
+            if (TextUtil.OwningForm(titlevalue) is UIAttributeList)
+            {
+                ElementTip(text, rect);
+            }
+
+            //Drawn from the top of a tall enough area, where its letters start and end below that top
             float width = rect.rect.width;
             TextGenerationSettings settings = text.GetGenerationSettings(new Vector2(width, text.preferredHeight + 200f));
             settings.textAnchor = TextAnchor.UpperLeft;

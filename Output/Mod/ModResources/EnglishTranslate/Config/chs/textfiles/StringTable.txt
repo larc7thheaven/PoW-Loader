@@ -626,11 +626,11 @@ SecondaryInterface1204	战斗按键TIP	<size=19>Usage of medication ends the cur
 SecondaryInterface1205	战斗按键TIP	Turn
 SecondaryInterface1206	战斗按键TIP，待机回10％（未移动）～5％（移动後）	<size=19>End turn. Recover Qi slightly.</size>
 SecondaryInterface1207	战斗按键TIP	Insufficient Qi
-SecondaryInterface1208	主角特技按键TIP	Element changed to <color=#FF0000>金</color>. Attacking from the back will trigger Critical Hit. Attacking from the side will increase Critical rate by 25%.
-SecondaryInterface1209	主角特技按键TIP	Element changed to <color=#FF0000>木</color>. In this turn, Dodge all attacks except critical hit.
-SecondaryInterface1210	主角特技按键TIP	Element changed to <color=#FF0000>水</color>. Remove all negative status effect. Restore 15% HP and 25% Qi.
-SecondaryInterface1211	主角特技按键TIP	Element changed to <color=#FF0000>火</color>. In this turn, Attack damage +25%. Block all incoming attack.
-SecondaryInterface1212	主角特技按键TIP	Element changed to <color=#FF0000>土</color>. In this turn, Counter attack rate +50%, Counter Attack range + 1, and 50% chance to Counter Attack for an ally that took damage.
+SecondaryInterface1208	主角特技按键TIP	Element changed to <color=#FF0000>Metal</color>. Attacking from the back will trigger Critical Hit. Attacking from the side will increase Critical rate by 25%.
+SecondaryInterface1209	主角特技按键TIP	Element changed to <color=#FF0000>Wood</color>. In this turn, Dodge all attacks except critical hit.
+SecondaryInterface1210	主角特技按键TIP	Element changed to <color=#FF0000>Water</color>. Remove all negative status effect. Restore 15% HP and 25% Qi.
+SecondaryInterface1211	主角特技按键TIP	Element changed to <color=#FF0000>Fire</color>. In this turn, Attack damage +25%. Block all incoming attack.
+SecondaryInterface1212	主角特技按键TIP	Element changed to <color=#FF0000>Earth</color>. In this turn, Counter attack rate +50%, Counter Attack range + 1, and 50% chance to Counter Attack for an ally that took damage.
 SecondaryInterface1213	主角特技按键TIP	Five Elements
 SecondaryInterface1214	主角特技按键TIP	Movement restricted!
 SecondaryInterface1215	主角特技按键TIP	While dazzed, Movement and Attacks are restricted!
