@@ -37,6 +37,9 @@ namespace EnglishPatch
         //Font for the combat texts that use the game's own font (DFKai-SB), empty keeps that font
         public static string CombatFontName { get; private set; } = "";
 
+        //Hides the dark tab behind the labels under the buff and debuff icons in combat
+        public static bool HideBuffLabelBackground { get; private set; } = true;
+
         //Values of the ChristmasTitle setting
         private const string ChristmasAuto = "Auto";
         private const string ChristmasAlways = "Always";
@@ -77,6 +80,9 @@ namespace EnglishPatch
                 "Font for the combat texts that are written in the game's own font, DFKai-SB (skill names, victory and failure " +
                 "conditions...). Leave it empty to keep the game's font. Otherwise any font installed in Windows, by its name " +
                 "as for Font (for example Arial). A font that is not installed falls back to Arial. Restart the game after changing it.").Value;
+            HideBuffLabelBackground = Config.Bind("Text", "HideBuffLabelBackground", true,
+                "Hide the dark background behind the labels under the buff and debuff icons in combat (\"Regeneration Lv 3\"). " +
+                "Restart the game after changing it.").Value;
 
             //The title of the main menu has a Christmas version (Main_title_Christmas.png), shown in December by default
             string christmasTitle = Config.Bind("Seasonal", "ChristmasTitle", ChristmasAuto, new ConfigDescription(
