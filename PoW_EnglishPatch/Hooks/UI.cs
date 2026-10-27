@@ -1595,11 +1595,13 @@ namespace EnglishPatch.Hooks
     [HarmonyPatch(typeof(WGSkillsIntroduction), "UpdateWidget")]
     public class WGSkillsIntroduction_UpdateWidget_Hook
     {
+        //The skill effect shrinks to fit its box and is justified, like the course description
         public static void Prefix(WGPaoMaDengText ___effectDescription)
         {
             if (___effectDescription != null)
             {
                 WGPaoMaDengText_AddMessage_Hook.FitToBox.Add(___effectDescription);
+                WGPaoMaDengText_AddMessage_Hook.Justify.Add(___effectDescription);
             }
         }
 
