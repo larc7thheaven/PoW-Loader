@@ -1867,7 +1867,7 @@ namespace EnglishPatch.Hooks
             //Debug.Log("WGNurturanceBtn_UpdateButton_Hook");
             Text text = __instance.Btn_Name;
             text.font = TextUtil.UIFont;
-            //Every label of the life menu (main row and all its pages) sits in the middle of its banner
+            //Every label of the life menu (main row and all its pages) sits in the middle of its banner, see also FitInBanner
             text.alignment = TextAnchor.MiddleCenter;
             ShrinkSkillLevel(__instance.SkillLevelText);
 
@@ -1887,9 +1887,14 @@ namespace EnglishPatch.Hooks
             if (!fit)
             {
                 TextUtil.RestoreBoxFit(text);
-                text.horizontalOverflow = HorizontalWrapMode.Wrap;
-                text.verticalOverflow = VerticalWrapMode.Overflow;
+                FitInBanner(text);
                 return;
+            }
+
+            //The buttons are reused from page to page, so a label shrunk by FitInBanner gets its size back first
+            if (_BannerSize.TryGetValue(text, out int bannerSize))
+            {
+                text.fontSize = bannerSize;
             }
 
             //Return, Back and Next have a tall narrow box made for Chinese written top to bottom, English is stacked letter by letter there
@@ -1901,6 +1906,43 @@ namespace EnglishPatch.Hooks
 
             TextUtil.ShrinkToBox(text, MinSize);
         }
+
+        /*
+         * The label banner under each button has pointed ends, and longer labels ("Martial Arts", "Four Arts") ran into them while
+         * the short ones had room on both sides. A label on one line wider than the flat part of the banner shrinks until it fits.
+         * One that still does not fit at the smallest size keeps the game's size and wraps, as before.
+         */
+        private static void FitInBanner(Text text)
+        {
+            if (!_BannerSize.TryGetValue(text, out int size))
+            {
+                size = text.fontSize;
+                _BannerSize[text] = size;
+            }
+
+            text.fontSize = size;
+            text.resizeTextForBestFit = false;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+
+            int minSize = Mathf.Max(MinSize, Mathf.RoundToInt(size * BannerMinScale));
+            float room = text.rectTransform.rect.width * BannerShare;
+            while (text.preferredWidth > room && text.fontSize > minSize)
+            {
+                text.fontSize--;
+            }
+
+            if (text.preferredWidth > room)
+            {
+                text.fontSize = size;
+                text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            }
+        }
+
+        //Part of the label box that is the flat part of the banner, and the smallest size a label shrinks to (part of its own)
+        private const float BannerShare = 0.8f;
+        private const float BannerMinScale = 0.75f;
+        private static readonly System.Collections.Generic.Dictionary<Text, int> _BannerSize = new System.Collections.Generic.Dictionary<Text, int>();
 
         //The skill level next to the martial arts icons ("10") was sized for the game's font, its digits are a lot bigger in the
         //English font the life screen now uses (see UIForm_Show_LifeFont_Hook). Buttons are updated more than once, so the size
