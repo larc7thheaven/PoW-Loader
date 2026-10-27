@@ -49,6 +49,26 @@ namespace EnglishPatch.Hooks
             }
         }
 
+        //Name Unity gives the game's own font (Kaiu, the Windows font DFKai-SB)
+        private const string GameFont = "Kaiu";
+
+        //Texts under root that are still written in the game's own font get the given font, the other fonts are left alone
+        public static void ReplaceGameFont(Component root, Font font)
+        {
+            if (root == null || font == null)
+            {
+                return;
+            }
+
+            foreach (Text text in root.GetComponentsInChildren<Text>(true))
+            {
+                if (text.font != null && text.font.name == GameFont)
+                {
+                    text.font = font;
+                }
+            }
+        }
+
         private static Font LoadFont(string name)
         {
             Font arial = Resources.GetBuiltinResource<Font>("Arial.ttf");
@@ -2008,41 +2028,31 @@ namespace EnglishPatch.Hooks
     [HarmonyPatch(typeof(UIForm), "Show")]
     public class UIForm_Show_CombatFont_Hook
     {
-        //Name Unity gives the game's font
-        private const string GameFont = "Kaiu";
-
         public static void Postfix(UIForm __instance)
         {
-            Font font = TextUtil.CombatFont;
-            if (font == null || __instance == null || !__instance.GetType().Name.StartsWith("UIBattle", System.StringComparison.Ordinal))
+            if (__instance == null || !__instance.GetType().Name.StartsWith("UIBattle", System.StringComparison.Ordinal))
             {
                 return;
             }
 
-            foreach (Text text in __instance.GetComponentsInChildren<Text>(true))
-            {
-                if (text.font != null && text.font.name == GameFont)
-                {
-                    text.font = font;
-                }
-            }
+            TextUtil.ReplaceGameFont(__instance, TextUtil.CombatFont);
         }
     }
 
     /*
-     * The main life screen (UINurturance: energy text, "Martial arts training and reading bonus!", the stats total) and the date
-     * next to it (UIDate: "Year 2 Month 6", "Mid") still had texts in the game's own font. They get the English font from the
-     * config file (Font, Arial by default) like the rest of the English texts. Done every time the screen is shown.
+     * Screens that still had texts in the game's own font get the English font from the config file (Font, Arial by default)
+     * like the rest of the English texts. Done every time the screen is shown.
+     *  - UINurturance, the main life screen: energy text, "Martial arts training and reading bonus!", the stats total
+     *  - UIDate, the date next to it: "Year 2 Month 6", "Mid"
+     *  - UIRelationship, a character in Socialize: the relationship levels and their abilities, the hobbies
+     *    (also done when another character is picked, see UIRelationship_UpdateRelationship_Hook)
      */
     [HarmonyPatch(typeof(UIForm), "Show")]
     public class UIForm_Show_LifeFont_Hook
     {
-        //Name Unity gives the game's font
-        private const string GameFont = "Kaiu";
-
         private static readonly System.Collections.Generic.HashSet<string> _Forms = new System.Collections.Generic.HashSet<string>
         {
-            "UINurturance", "UIDate"
+            "UINurturance", "UIDate", "UIRelationship"
         };
 
         public static void Postfix(UIForm __instance)
@@ -2052,14 +2062,7 @@ namespace EnglishPatch.Hooks
                 return;
             }
 
-            Font font = TextUtil.UIFont;
-            foreach (Text text in __instance.GetComponentsInChildren<Text>(true))
-            {
-                if (text.font != null && text.font.name == GameFont)
-                {
-                    text.font = font;
-                }
-            }
+            TextUtil.ReplaceGameFont(__instance, TextUtil.UIFont);
         }
     }
 
@@ -2509,9 +2512,11 @@ namespace EnglishPatch.Hooks
     [HarmonyPatch(typeof(UIRelationship), "UpdateRelationship")]
     public class UIRelationship_UpdateRelationship_Hook
     {
-        public static void Postfix(ref Text ___community_name, ref Text ___community_introduction, WGFavorability[] ___community_fav_level)
+        public static void Postfix(UIRelationship __instance, ref Text ___community_name, ref Text ___community_introduction, WGFavorability[] ___community_fav_level)
         {
             //Debug.Log("UIRelationship_UpdateRelationship_Hook");
+            //Before fitting the abilities, so they are measured in the font they are shown in
+            TextUtil.ReplaceGameFont(__instance, TextUtil.UIFont);
             RelationshipAbilities.Fit(___community_fav_level);
 
             ___community_name.font = TextUtil.UIFont;
