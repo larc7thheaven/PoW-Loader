@@ -769,7 +769,7 @@ SecondaryInterface2619	创角介面体魄	Attack 1 / Defense 4 / Counterattack 2
 SecondaryInterface2620	创角介面灵巧	Attack 3 / Defence 2 / Evasion 2 / HP 1 / Qi 1 / 120 points + 1 movement, and then every 200 points + 1 movement
 SecondaryInterface2621	创角介面意志	Attack 2 / Defense 3 / Critical Hit 2 / HP 2 / Qi 3 / Increase the five elements of the body to counteract each other's damage
 SecondaryInterface2622	创角介面	Finish
-SecondaryInterface2623	创角介面	Please enter a Name，this field cannot be empty。
+SecondaryInterface2623	创角介面	Please enter a Name, this field cannot be empty。
 SecondaryInterface2624	创角介面	This Name cannot be used
 SecondaryInterface2625	创角介面	Capacity impact range
 SecondaryInterface2701	按键说明	ESC＝Back
