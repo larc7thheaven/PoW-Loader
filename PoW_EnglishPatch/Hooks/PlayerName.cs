@@ -44,6 +44,9 @@ namespace EnglishPatch.Hooks
          * Character names are copied into the save the first time a character is used. Saves made with an older translation
          * keep the surname without its trailing space ("Ning" + "Chuchu" = "NingChuchu"), even though CharacterExterior.txt has "Ning ".
          * We only add the missing space back when the saved surname is otherwise the same, names changed by the story stay as they are.
+         *
+         * Some cutscene renames put the space in front of the name instead ("Cheng" + " Yong"). Adding the surname space to those
+         * gave "Cheng  Yong", so the space stays on the surname and the name loses its leading one (also fixes saves that have both).
          */
         public static void RestoreNpcSurNameSpaces(GameData gameData)
         {
@@ -59,17 +62,29 @@ namespace EnglishPatch.Hooks
                     continue;
                 }
 
-                CharacterExterior current = Game.Data.Get<CharacterExterior>(entry.Key);
-                string currentSurName = current?.SurName;
-                if (string.IsNullOrEmpty(currentSurName) || !char.IsWhiteSpace(currentSurName[currentSurName.Length - 1]))
-                {
-                    continue;
-                }
+                RestoreSurNameSpace(entry.Key, entry.Value);
 
-                if (entry.Value.SurName == currentSurName.TrimEnd())
+                string surName = entry.Value.SurName;
+                string name = entry.Value.Name;
+                if (char.IsWhiteSpace(surName[surName.Length - 1]) && !string.IsNullOrEmpty(name) && char.IsWhiteSpace(name[0]))
                 {
-                    entry.Value.SurName = currentSurName;
+                    entry.Value.Name = name.TrimStart();
                 }
+            }
+        }
+
+        private static void RestoreSurNameSpace(string id, CharacterExteriorData saved)
+        {
+            CharacterExterior current = Game.Data.Get<CharacterExterior>(id);
+            string currentSurName = current?.SurName;
+            if (string.IsNullOrEmpty(currentSurName) || !char.IsWhiteSpace(currentSurName[currentSurName.Length - 1]))
+            {
+                return;
+            }
+
+            if (saved.SurName == currentSurName.TrimEnd())
+            {
+                saved.SurName = currentSurName;
             }
         }
     }
