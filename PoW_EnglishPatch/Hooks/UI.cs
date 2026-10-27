@@ -975,6 +975,13 @@ namespace EnglishPatch.Hooks
         private static readonly Color OutlineColor = new Color(0f, 0f, 0f, 0.85f);
         private static readonly Vector2 OutlineDistance = new Vector2(1f, -1f);
 
+        //The outline is in the label's own units, a label drawn bigger and shrunk needs it bigger to look the same
+        internal static Vector2 OutlineFor(Text label)
+        {
+            float scale = label.rectTransform.localScale.x;
+            return scale > 0f ? OutlineDistance / scale : OutlineDistance;
+        }
+
         public static System.Collections.Generic.IEnumerable<MethodBase> TargetMethods()
         {
             yield return AccessTools.Method(typeof(WGBufferIcon), "SetBufferOverlay");
@@ -1003,8 +1010,37 @@ namespace EnglishPatch.Hooks
             {
                 Outline outline = label.gameObject.AddComponent<Outline>();
                 outline.effectColor = OutlineColor;
-                outline.effectDistance = OutlineDistance;
+                outline.effectDistance = OutlineFor(label);
             }
+        }
+    }
+
+    /*
+     * Watches a buff label drawn twice as big and shrunk by half (WGBufferIcon_SetBufferOverlay_Hook.Sharpen): if an
+     * animation sets its scale, the halving is gone and it would be shown twice as big, so it goes back to the game's way.
+     * Only compares the scale, once per frame.
+     */
+    public class SharpLabelGuard : MonoBehaviour
+    {
+        private Vector3 _Scale;
+
+        public void Watch(Vector3 scale)
+        {
+            _Scale = scale;
+        }
+
+        private void LateUpdate()
+        {
+            if (transform.localScale == _Scale)
+            {
+                return;
+            }
+            Text label = GetComponent<Text>();
+            if (label != null)
+            {
+                WGBufferIcon_SetBufferOverlay_Hook.Unsharpen(label);
+            }
+            Destroy(this);
         }
     }
 
@@ -1041,14 +1077,19 @@ namespace EnglishPatch.Hooks
                 size = label.fontSize;
                 _OriginalSize[label] = size;
             }
-            label.fontSize = size;
+            int sharp = Sharpen(label);
+            label.fontSize = size * sharp;
             label.resizeTextForBestFit = false;
             label.horizontalOverflow = HorizontalWrapMode.Overflow;
             label.verticalOverflow = VerticalWrapMode.Overflow;
             label.text = label.text.Replace('\u00A0', ' ');
+            if (sharp != 1)
+            {
+                label.text = TextUtil.ScaleSizeTags(label.text, sharp);
+            }
 
             float room = Mathf.Abs(label.rectTransform.InverseTransformVector(new Vector3(WorldRoom(__instance), 0f, 0f)).x);
-            while (label.fontSize > MinSize && TextUtil.LinesWidth(label, label.text) > room)
+            while (label.fontSize > MinSize * sharp && TextUtil.LinesWidth(label, label.text) > room)
             {
                 label.fontSize--;
             }
@@ -1088,6 +1129,61 @@ namespace EnglishPatch.Hooks
             if (up > 0f)
             {
                 rect.anchoredPosition += new Vector2(0f, rect.parent.InverseTransformVector(new Vector3(0f, up, 0f)).y);
+            }
+        }
+
+        /*
+         * Hovering a buff zooms its icon and the label with it. Text is drawn for its own size, so zoomed it was blurry.
+         * The label is drawn twice as big and shrunk back by half: the same size on screen, and sharp when zoomed.
+         * Done once per label (its area doubled, its scale halved), returns how much bigger its font is drawn.
+         */
+        private const int Sharpness = 2;
+
+        private static readonly System.Collections.Generic.HashSet<Text> _Sharpened = new System.Collections.Generic.HashSet<Text>();
+
+        //Labels whose scale something else sets (an animation), they keep the game's way
+        private static readonly System.Collections.Generic.HashSet<Text> _NotSharpened = new System.Collections.Generic.HashSet<Text>();
+
+        internal static int Sharpen(Text label)
+        {
+            if (_Sharpened.Contains(label))
+            {
+                return Sharpness;
+            }
+            RectTransform rect = label.rectTransform;
+            //Only an area of fixed size can simply be doubled
+            if (_NotSharpened.Contains(label) || rect.anchorMin != rect.anchorMax)
+            {
+                return 1;
+            }
+            rect.sizeDelta *= Sharpness;
+            rect.localScale /= Sharpness;
+            _Sharpened.Add(label);
+            SetOutline(label);
+            label.gameObject.AddComponent<SharpLabelGuard>().Watch(rect.localScale);
+            return Sharpness;
+        }
+
+        //Back to the game's way, when an animation sets the label's scale itself (it would be shown twice as big)
+        internal static void Unsharpen(Text label)
+        {
+            if (!_Sharpened.Remove(label))
+            {
+                return;
+            }
+            _NotSharpened.Add(label);
+            label.rectTransform.sizeDelta /= Sharpness;
+            label.fontSize = Mathf.Max(1, label.fontSize / Sharpness);
+            label.text = TextUtil.ScaleSizeTags(label.text, 1f / Sharpness);
+            SetOutline(label);
+        }
+
+        private static void SetOutline(Text label)
+        {
+            Outline outline = label.GetComponent<Outline>();
+            if (outline != null)
+            {
+                outline.effectDistance = WGBufferIcon_LabelBackground_Hook.OutlineFor(label);
             }
         }
 
@@ -2540,7 +2636,13 @@ namespace EnglishPatch.Hooks
             }
             if (label == null || number.rectTransform.parent == null || label.rectTransform.parent == null)
             {
+                Warn(round, "no label found next to the number");
                 return;
+            }
+            if (_Described.Add(round))
+            {
+                Debug.Log("[EnglishPatch] Turn label: '" + label.text + "' font " + (label.font != null ? label.font.name : "none") + " size "
+                    + label.fontSize + " alpha " + label.color.a + ", number '" + number.text + "' font " + (number.font != null ? number.font.name : "none"));
             }
 
             //The number as big as "Turn", allowed past its area which is sized for the smaller number
@@ -2679,6 +2781,7 @@ namespace EnglishPatch.Hooks
         //The "Turn" text: the closest other text of the round on the same height as the number, outside the conditions
         //Written once per round widget to the log (F9) when the round is left as the game shows it
         private static readonly System.Collections.Generic.HashSet<WgBattleRound> _Warned = new System.Collections.Generic.HashSet<WgBattleRound>();
+        private static readonly System.Collections.Generic.HashSet<WgBattleRound> _Described = new System.Collections.Generic.HashSet<WgBattleRound>();
 
         private static void Warn(WgBattleRound round, string why)
         {
