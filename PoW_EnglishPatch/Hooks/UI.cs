@@ -680,27 +680,35 @@ namespace EnglishPatch.Hooks
     [HarmonyPatch(typeof(WGMessage), "UpdateWidget")]
     public class WGMessage_UpdateWidget_Hook
     {
+        private static void Widen(RectTransform rect)
+        {
+            if (_Widened.TryGetValue(rect, out Vector2 size) && rect.sizeDelta == size)
+            {
+                return;
+            }
+            TextUtil.Prune(_Widened);
+            rect.sizeDelta += new Vector2(WiderLeft, 0f);
+            rect.anchoredPosition -= new Vector2(WiderLeft * (1f - rect.pivot.x) * rect.localScale.x, 0f);
+            _Widened[rect] = rect.sizeDelta;
+        }
+
         /*
-         * The text started far right of the left end of the talk box, with a wide empty strip before it. Its left edge
-         * moves left by WiderLeft, the right edge stays, so the lines use that room.
+         * The text started far right of the left end of the talk box, with a wide empty strip before it. The text area is
+         * made WiderLeft wider and moved so its right edge stays, so the lines start further left.
+         * Done relative to the area as it is, once: an area remembered while the box was still being set up made the
+         * text area huge (lines no longer wrapped and ran off the screen). The size set here is kept, so a message that
+         * finds that size again is not widened twice, and nothing adds up.
          */
         private const float WiderLeft = 77f;
 
-        private static readonly System.Collections.Generic.Dictionary<RectTransform, float> _Left = new System.Collections.Generic.Dictionary<RectTransform, float>();
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Widened = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
 
         public static void Postfix(WGText ___message)
         {
             Text message = TextUtil.TextOf(___message);
             if (message != null)
             {
-                RectTransform rect = message.rectTransform;
-                if (!_Left.TryGetValue(rect, out float left))
-                {
-                    TextUtil.Prune(_Left);
-                    left = rect.offsetMin.x;
-                    _Left[rect] = left;
-                }
-                rect.offsetMin = new Vector2(left - WiderLeft, rect.offsetMin.y);
+                Widen(message.rectTransform);
             }
 
             if (___message == null || !TextUtil.DialogueTexts.Add(___message))
