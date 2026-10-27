@@ -429,24 +429,17 @@ namespace EnglishPatch.Hooks
             TextGenerationSettings oneLine = wrapped;
             oneLine.horizontalOverflow = HorizontalWrapMode.Overflow;
 
-            TextGenerator generator = new TextGenerator();
+            TextGenerator generator = JustifyGenerator;
             generator.Populate(content, wrapped);
             //A copy, measuring the lines below fills the generator again
             UILineInfo[] lines = generator.GetLinesArray();
 
             float scale = text.pixelsPerUnit;
-            float pair = generator.GetPreferredWidth("xx", oneLine);
-            float spaceWidth = (generator.GetPreferredWidth("x x", oneLine) - pair) / scale;
+            float[] smallSpace = SpaceWidths(text, generator, oneLine);
+            float spaceWidth = smallSpace[0];
             if (spaceWidth <= 0f)
             {
                 return original;
-            }
-
-            //Glyph widths are rounded to whole pixels, so the width of a space at every smaller size is measured instead of assumed
-            float[] smallSpace = new float[text.fontSize];
-            for (int size = 1; size < text.fontSize; size++)
-            {
-                smallSpace[size] = (generator.GetPreferredWidth("x<size=" + size + "> </size>x", oneLine) - pair) / scale;
             }
 
             var result = new StringBuilder();
@@ -543,11 +536,59 @@ namespace EnglishPatch.Hooks
 
         private static readonly System.Text.RegularExpressions.Regex _ColorTag = new System.Text.RegularExpressions.Regex("<color=[^>]*>|</color>");
 
+        //One generator for every justifying, made when first used
+        private static TextGenerator _JustifyGenerator;
+        private static TextGenerator JustifyGenerator => _JustifyGenerator ?? (_JustifyGenerator = new TextGenerator());
+
+        /*
+         * Width of a space at the text's size ([0]) and at every smaller size ([size], glyph widths are rounded to whole
+         * pixels so they are measured, not assumed). The same for every text of that font, size, style and scale, so it is
+         * measured once (the dialogue is justified on every line shown, this was about 20 measures each time).
+         */
+        private static readonly System.Collections.Generic.Dictionary<string, float[]> _SpaceWidths = new System.Collections.Generic.Dictionary<string, float[]>();
+
+        private static float[] SpaceWidths(Text text, TextGenerator generator, TextGenerationSettings oneLine)
+        {
+            string key = text.font.GetInstanceID() + "/" + text.fontSize + "/" + (int)text.fontStyle + "/" + text.pixelsPerUnit;
+            if (_SpaceWidths.TryGetValue(key, out float[] widths))
+            {
+                return widths;
+            }
+            float scale = text.pixelsPerUnit;
+            float pair = generator.GetPreferredWidth("xx", oneLine);
+            widths = new float[Mathf.Max(1, text.fontSize)];
+            widths[0] = (generator.GetPreferredWidth("x x", oneLine) - pair) / scale;
+            for (int size = 1; size < widths.Length; size++)
+            {
+                widths[size] = (generator.GetPreferredWidth("x<size=" + size + "> </size>x", oneLine) - pair) / scale;
+            }
+            _SpaceWidths[key] = widths;
+            return widths;
+        }
+
+        //What each text was justified into and at which width: the same text set again is not worked out again
+        private static readonly System.Collections.Generic.Dictionary<Text, JustifiedText> _Justified = new System.Collections.Generic.Dictionary<Text, JustifiedText>();
+
+        private struct JustifiedText
+        {
+            public string Result;
+            public float Width;
+            public int Size;
+        }
+
         //Justifies a text in place, see Justified
         public static void Justify(Text text)
         {
             if (text == null || text.font == null)
             {
+                return;
+            }
+
+            float width = text.rectTransform.rect.width;
+            if (_Justified.TryGetValue(text, out JustifiedText done) && done.Result == text.text && done.Width == width && done.Size == text.fontSize)
+            {
+                //Already our lines: they must not be wrapped again (a hook may have set the text to wrap meanwhile)
+                text.horizontalOverflow = HorizontalWrapMode.Overflow;
                 return;
             }
 
@@ -566,6 +607,8 @@ namespace EnglishPatch.Hooks
                 text.supportRichText = true;
                 text.horizontalOverflow = HorizontalWrapMode.Overflow;
                 text.text = justified;
+                Prune(_Justified);
+                _Justified[text] = new JustifiedText { Result = justified, Width = width, Size = text.fontSize };
             }
         }
 
@@ -2634,8 +2677,14 @@ namespace EnglishPatch.Hooks
         private static readonly AccessTools.FieldRef<WgBattleRound, GameObject> _Tip = AccessTools.FieldRefAccess<WgBattleRound, GameObject>("tipObj");
 
         //The round label turns from 回合 into "Turn" after the round is set up: placed again then (WGStringTable_UpdateString_Hook)
-        internal static void LabelChanged(Component label)
+        internal static void LabelChanged(Text label)
         {
+            //Every label of the game goes through here, only the round label is looked at further
+            string written = label.text == null ? "" : label.text.Trim();
+            if (!written.Equals("Turn", System.StringComparison.OrdinalIgnoreCase) && written != "回合")
+            {
+                return;
+            }
             WgBattleRound round = label.GetComponentInParent<WgBattleRound>();
             if (round != null)
             {
@@ -2732,7 +2781,7 @@ namespace EnglishPatch.Hooks
                 Warn(round, "no label found next to the number");
                 return;
             }
-            LayoutLog.Once("turn label " + round.GetInstanceID(), "Turn label: " + LayoutLog.Describe(label) + " | number: " + LayoutLog.Describe(number));
+            if (LayoutLog.Enabled) LayoutLog.Once("turn label " + round.GetInstanceID(), "Turn label: " + LayoutLog.Describe(label) + " | number: " + LayoutLog.Describe(number));
 
             //"Turn" in the game's font is a little taller than its area (sized for 回合), it was cut and not shown
             label.verticalOverflow = VerticalWrapMode.Overflow;
@@ -2752,7 +2801,7 @@ namespace EnglishPatch.Hooks
                 {
                     label.transform.SetSiblingIndex(number.transform.GetSiblingIndex());
                 }
-                LayoutLog.Once("turn layout " + round.GetInstanceID(), "Turn: placed by the layout " + layout.GetType().Name + ", only swapped");
+                if (LayoutLog.Enabled) LayoutLog.Once("turn layout " + round.GetInstanceID(), "Turn: placed by the layout " + layout.GetType().Name + ", only swapped");
                 return;
             }
 
@@ -2816,7 +2865,7 @@ namespace EnglishPatch.Hooks
             {
                 baseline = 0f;
             }
-            LayoutLog.Once("turn moves " + round.GetInstanceID() + " " + number.text, "Turn measures: label drawn " + LayoutLog.R(labelInk.Value) + ", number drawn "
+            if (LayoutLog.Enabled) LayoutLog.Once("turn moves " + round.GetInstanceID() + " " + number.text, "Turn measures: label drawn " + LayoutLog.R(labelInk.Value) + ", number drawn "
                 + LayoutLog.R(numberInk.Value) + ", baselines " + labelBase.Value.ToString("F1") + " / " + numberBase.Value.ToString("F1")
                 + ", logo " + (logo != null ? logo.name : "none") + ", band " + (band != null ? band.name : "none") + ", up " + up.ToString("F1")
                 + ", label moves " + (left - labelInk.Value.xMin).ToString("F1") + ", number moves " + (left + labelInk.Value.width + space - numberInk.Value.xMin).ToString("F1")
@@ -2887,7 +2936,7 @@ namespace EnglishPatch.Hooks
             if (_Warned.Add(round))
             {
                 Debug.LogWarning("[EnglishPatch] Turn number not moved: " + why);
-                LayoutLog.Once("turn warn " + round.GetInstanceID(), "Turn not moved: " + why);
+                if (LayoutLog.Enabled) LayoutLog.Once("turn warn " + round.GetInstanceID(), "Turn not moved: " + why);
             }
         }
 
@@ -4100,9 +4149,12 @@ namespace EnglishPatch.Hooks
     /*
      * BepInEx/EnglishPatch_Layout.log: how texts were measured and moved (Turn label, key numbers), one line per text,
      * to find what goes wrong on another PC or with another font. Started empty every time the game starts.
+     * Only when LayoutLog is on in the config file, the lines are not even put together otherwise.
      */
     internal static class LayoutLog
     {
+        public static bool Enabled => EnglishPatch.LayoutLog;
+
         private static readonly string _Path = System.IO.Path.Combine(BepInEx.Paths.BepInExRootPath, "EnglishPatch_Layout.log");
         private static readonly System.Collections.Generic.HashSet<string> _Written = new System.Collections.Generic.HashSet<string>();
         private static bool _Started;
@@ -4580,7 +4632,7 @@ namespace EnglishPatch.Hooks
                 Vector3? ink = InkCenter(text);
                 if (ink == null)
                 {
-                    LayoutLog.Once("key " + text.GetInstanceID(), "Key number '" + text.text + "': nothing drawn when measured, " + LayoutLog.Describe(text));
+                    if (LayoutLog.Enabled) LayoutLog.Once("key " + text.GetInstanceID(), "Key number '" + text.text + "': nothing drawn when measured, " + LayoutLog.Describe(text));
                     continue;
                 }
                 Vector3 middle = DrawnMiddle(badge);
@@ -4588,7 +4640,7 @@ namespace EnglishPatch.Hooks
                 //The number is moved within its badge, a move bigger than the badge is a measure gone wrong
                 Vector2 badgeSize = badge.rectTransform.rect.size;
                 bool sane = Mathf.Abs(shift.x) <= badgeSize.x && Mathf.Abs(shift.y) <= badgeSize.y;
-                LayoutLog.Once("key " + text.GetInstanceID(), "Key number '" + text.text + "': " + LayoutLog.Describe(text)
+                if (LayoutLog.Enabled) LayoutLog.Once("key " + text.GetInstanceID(), "Key number '" + text.text + "': " + LayoutLog.Describe(text)
                     + ", drawn middle " + LayoutLog.V(ink.Value) + ", badge '" + badge.name + "' size " + LayoutLog.V(badgeSize)
                     + " middle " + LayoutLog.V(middle) + ", move " + LayoutLog.V(shift) + (sane ? "" : " TOO BIG, not moved"));
                 if (sane)
