@@ -2375,9 +2375,71 @@ namespace EnglishPatch.Hooks
                 ___text_current.font = font;
             }
 
-            if (___text_current != null)
+            Replacer.Run(__instance, () =>
             {
-                Replacer.Run(__instance, () => TurnFirst(__instance, ___text_current, ___text_win_lose, ___tipObj));
+                if (___text_current != null)
+                {
+                    TurnFirst(__instance, ___text_current, ___text_win_lose, ___tipObj);
+                }
+                if (___text_win_lose != null)
+                {
+                    CenterConditions(___text_win_lose);
+                }
+            });
+        }
+
+        /*
+         * The victory and failure conditions: a long text came close to the bottom of the dark area behind it. The area
+         * grows downwards when the text needs it, keeping at least ConditionGap above and below the letters, and the
+         * text is put in its middle so both gaps are the same.
+         */
+        private const float ConditionGap = 12f;
+
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2[]> _AreaOrigin = new System.Collections.Generic.Dictionary<RectTransform, Vector2[]>();
+
+        private static void CenterConditions(Text text)
+        {
+            if (!text.isActiveAndEnabled || string.IsNullOrEmpty(text.text))
+            {
+                return;
+            }
+            RectTransform rect = text.rectTransform;
+            Reset(rect);
+            RectTransform area = WGTalentItem_UpdateWidget_Hook.BoxOf(text);
+            if (area == rect || area.IsChildOf(rect))
+            {
+                return;
+            }
+
+            if (!_AreaOrigin.TryGetValue(area, out Vector2[] origin))
+            {
+                origin = new[] { area.sizeDelta, area.anchoredPosition };
+                _AreaOrigin[area] = origin;
+            }
+            area.sizeDelta = origin[0];
+            area.anchoredPosition = origin[1];
+
+            Rect? ink = Ink(text);
+            if (ink == null)
+            {
+                return;
+            }
+            Vector3[] corners = new Vector3[4];
+            area.GetWorldCorners(corners);
+            float gap = Mathf.Abs(area.TransformVector(new Vector3(0f, ConditionGap, 0f)).y);
+            float missing = ink.Value.height + 2f * gap - (corners[1].y - corners[0].y);
+            if (missing > 0f && area.parent != null && area.GetComponentInParent<LayoutGroup>() == null)
+            {
+                //Taller by what is missing, with the top edge where it was
+                float local = Mathf.Abs(area.parent.InverseTransformVector(new Vector3(0f, missing, 0f)).y) / Mathf.Max(0.0001f, area.localScale.y);
+                area.sizeDelta += new Vector2(0f, local);
+                area.anchoredPosition -= new Vector2(0f, local * (1f - area.pivot.y) * area.localScale.y);
+            }
+
+            float? shift = WGTalentItem_UpdateWidget_Hook.ShiftToCenter(text, area);
+            if (shift != null)
+            {
+                rect.anchoredPosition += new Vector2(0f, shift.Value);
             }
         }
 
@@ -3340,7 +3402,7 @@ namespace EnglishPatch.Hooks
          * and their other children (the box can be an image drawn behind the text, not only one of its parents).
          * The text's own rect when there is none.
          */
-        private static RectTransform BoxOf(Text text)
+        internal static RectTransform BoxOf(Text text)
         {
             Vector3[] own = new Vector3[4];
             text.rectTransform.GetWorldCorners(own);
@@ -3453,7 +3515,7 @@ namespace EnglishPatch.Hooks
         private static readonly System.Collections.Generic.Dictionary<LayoutGroup, RectOffset> _Padding = new System.Collections.Generic.Dictionary<LayoutGroup, RectOffset>();
 
         //How far up the text has to move (in the units of its parent) so its drawn letters are in the middle of the box
-        private static float? ShiftToCenter(Text text, RectTransform box)
+        internal static float? ShiftToCenter(Text text, RectTransform box)
         {
             RectTransform rect = text.rectTransform;
             _Generator.Populate(text.text, text.GetGenerationSettings(rect.rect.size));
