@@ -3039,6 +3039,79 @@ namespace EnglishPatch.Hooks
     }
 
     /*
+     * The bonus tip on the main life screen ("Workout bonus!", the herbal bath buffs left, the effects enhanced): the game
+     * sizes the dark box behind it for Chinese (520 wide), the English lines ran past its right edge and below it, and broke
+     * inside words (the game's non-breaking spaces). The text wraps at spaces, ends Padding inside the box's right edge,
+     * and shrinks (its size tags with it) until its last line ends Padding above the box's bottom.
+     */
+    [HarmonyPatch(typeof(UINurturance), "SetAddEffectBack")]
+    public class UINurturance_SetAddEffectBack_Hook
+    {
+        private const float Padding = 12f;
+        private const float MinScale = 0.6f;
+
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _OffsetMax = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+
+        public static void Postfix(RectTransform ___AddEffectBack, Text ___AddEffectTip)
+        {
+            Text text = ___AddEffectTip;
+            if (text == null || ___AddEffectBack == null || string.IsNullOrEmpty(text.text) || !___AddEffectBack.gameObject.activeSelf)
+            {
+                return;
+            }
+
+            //From the prefab's area every time, the tip is shown again and again
+            RectTransform rect = text.rectTransform;
+            if (!_OffsetMax.TryGetValue(rect, out Vector2 offsetMax))
+            {
+                offsetMax = rect.offsetMax;
+                _OffsetMax[rect] = offsetMax;
+            }
+            rect.offsetMax = offsetMax;
+
+            string original = text.text.Replace('\u00A0', ' ');
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            text.resizeTextForBestFit = false;
+
+            Vector3[] box = new Vector3[4];
+            ___AddEffectBack.GetWorldCorners(box);
+            Vector3[] own = new Vector3[4];
+            rect.GetWorldCorners(own);
+            float pad = Mathf.Abs(rect.TransformVector(new Vector3(Padding, 0f, 0f)).x);
+
+            //Right edge inside the box
+            float over = own[2].x - (box[2].x - pad);
+            if (over > 0f && rect.parent != null)
+            {
+                float local = Mathf.Abs(rect.parent.InverseTransformVector(new Vector3(over, 0f, 0f)).x);
+                rect.offsetMax = new Vector2(offsetMax.x - local, offsetMax.y);
+            }
+
+            //Down to the box's bottom, from where the text starts (its top, the tip is aligned to the top)
+            rect.GetWorldCorners(own);
+            float room = own[1].y - (box[0].y + pad);
+            if (!_Size.TryGetValue(text, out int size))
+            {
+                size = text.fontSize;
+                _Size[text] = size;
+            }
+            for (float scale = 1f; ; scale -= 0.05f)
+            {
+                text.text = scale < 1f ? TextUtil.ScaleSizeTags(original, scale) : original;
+                text.fontSize = Mathf.Max(1, Mathf.RoundToInt(size * scale));
+                float height = Mathf.Abs(rect.TransformVector(new Vector3(0f, text.preferredHeight, 0f)).y);
+                if (height <= room || scale - 0.05f < MinScale)
+                {
+                    break;
+                }
+            }
+        }
+
+        private static readonly System.Collections.Generic.Dictionary<Text, int> _Size = new System.Collections.Generic.Dictionary<Text, int>();
+    }
+
+    /*
      * Screens that still had texts in the game's own font get the English font from the config file (Font, Arial by default)
      * like the rest of the English texts. Done every time the screen is shown.
      *  - UINurturance, the main life screen: energy text, "Martial arts training and reading bonus!", the stats total
