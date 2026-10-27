@@ -1052,6 +1052,43 @@ namespace EnglishPatch.Hooks
             {
                 label.fontSize--;
             }
+
+            CloseToIcon(__instance, label);
+        }
+
+        /*
+         * The label sat far below the round icon, a big gap was left between them. Its letters now start IconGap below
+         * the bottom of the icon (measured from the top of the capitals of its first line).
+         */
+        private const float IconGap = 3f;
+
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Origin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+
+        private static void CloseToIcon(WGBufferIcon buff, Text label)
+        {
+            RectTransform rect = label.rectTransform;
+            if (!_Origin.TryGetValue(rect, out Vector2 origin))
+            {
+                TextUtil.Prune(_Origin);
+                origin = rect.anchoredPosition;
+                _Origin[rect] = origin;
+            }
+            rect.anchoredPosition = origin;
+
+            Image icon = buff.Icon;
+            if (icon == null || rect.parent == null || !SkillBarNames.LettersSpan(label, out float top, out float bottom))
+            {
+                return;
+            }
+            Vector3[] corners = new Vector3[4];
+            icon.rectTransform.GetWorldCorners(corners);
+            float gap = Mathf.Abs(rect.TransformVector(new Vector3(0f, IconGap, 0f)).y);
+            float up = corners[0].y - gap - top;
+            //Only closer: a label already close to the icon (or over it) stays where it is
+            if (up > 0f)
+            {
+                rect.anchoredPosition += new Vector2(0f, rect.parent.InverseTransformVector(new Vector3(0f, up, 0f)).y);
+            }
         }
 
         //The icon row each icon belongs to, found once (the icons stay in their row)
@@ -3889,10 +3926,21 @@ namespace EnglishPatch.Hooks
         //World height of the middle between the capitals' top of the first line and the baseline of the last one
         internal static float? LettersMiddle(Text text)
         {
+            if (!LettersSpan(text, out float top, out float bottom))
+            {
+                return null;
+            }
+            return (top + bottom) / 2f;
+        }
+
+        //World heights of the top of the capitals of the first line and of the baseline of the last line
+        internal static bool LettersSpan(Text text, out float worldTop, out float worldBottom)
+        {
+            worldTop = worldBottom = 0f;
             RectTransform rect = text.rectTransform;
             if (text.pixelsPerUnit <= 0f)
             {
-                return null;
+                return false;
             }
 
             //Where an "H" starts and ends below the top of its line
@@ -3901,7 +3949,7 @@ namespace EnglishPatch.Hooks
             _Generator.Populate("H", settings);
             if (_Generator.verts.Count < 4 || _Generator.lineCount < 1)
             {
-                return null;
+                return false;
             }
             float capTop = float.MinValue, baseline = float.MaxValue;
             for (int i = 0; i < 4; i++)
@@ -3916,11 +3964,13 @@ namespace EnglishPatch.Hooks
             int count = _Generator.lineCount;
             if (count < 1)
             {
-                return null;
+                return false;
             }
             float top = _Generator.lines[0].topY - capBelowTop;
             float bottom = _Generator.lines[count - 1].topY - baseBelowTop;
-            return rect.TransformPoint(new Vector3(0f, (top + bottom) / 2f / text.pixelsPerUnit, 0f)).y;
+            worldTop = rect.TransformPoint(new Vector3(0f, top / text.pixelsPerUnit, 0f)).y;
+            worldBottom = rect.TransformPoint(new Vector3(0f, bottom / text.pixelsPerUnit, 0f)).y;
+            return true;
         }
     }
 
