@@ -44,6 +44,9 @@ namespace EnglishPatch
         public static string DialogueFontName { get; private set; } = "";
         public static int DialogueFontSize { get; private set; } = 0;
 
+        //Writes BepInEx/EnglishPatch_Layout.log, how some texts were measured and moved, to report layout problems
+        public static bool LayoutLog { get; private set; } = false;
+
         //Values of the ChristmasTitle setting
         private const string ChristmasAuto = "Auto";
         private const string ChristmasAlways = "Always";
@@ -92,6 +95,10 @@ namespace EnglishPatch
             HideBuffLabelBackground = Config.Bind("Text", "HideBuffLabelBackground", true,
                 "Hide the dark background behind the labels under the buff and debuff icons in combat (\"Regeneration Lv 3\"). " +
                 "Restart the game after changing it.").Value;
+
+            LayoutLog = Config.Bind("Debug", "LayoutLog", false,
+                "Write BepInEx/EnglishPatch_Layout.log: how the turn counter and the skill key numbers in combat were measured " +
+                "and moved. Only useful to report a text that is misplaced or missing. Restart the game after changing it.").Value;
 
             //The title of the main menu has a Christmas version (Main_title_Christmas.png), shown in December by default
             string christmasTitle = Config.Bind("Seasonal", "ChristmasTitle", ChristmasAuto, new ConfigDescription(
