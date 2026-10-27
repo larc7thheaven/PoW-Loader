@@ -167,6 +167,30 @@ namespace EnglishPatch.Hooks
             return wgText == null ? null : _WGTextText(wgText);
         }
 
+        /*
+         * Drops what is kept for widgets that no longer exist (a battle screen is made again for every battle), checked
+         * only once the dictionary has grown, so it costs nothing on most calls.
+         */
+        public static void Prune<TKey, TValue>(System.Collections.Generic.Dictionary<TKey, TValue> kept) where TKey : UnityEngine.Object
+        {
+            if (kept.Count < 64)
+            {
+                return;
+            }
+            var gone = new System.Collections.Generic.List<TKey>();
+            foreach (TKey key in kept.Keys)
+            {
+                if (key == null)
+                {
+                    gone.Add(key);
+                }
+            }
+            foreach (TKey key in gone)
+            {
+                kept.Remove(key);
+            }
+        }
+
         private static readonly AccessTools.FieldRef<WGStringTable, string> _StringTableId = AccessTools.FieldRefAccess<WGStringTable, string>("id");
 
         //The StringTable id a label of the prefab shows (SecondaryInterface0107...)
@@ -2369,6 +2393,11 @@ namespace EnglishPatch.Hooks
 
         public static void Postfix(WgBattleRound __instance, Text ___text_current, Text ___text_win_lose, GameObject ___tipObj)
         {
+            TextUtil.Prune(_Origin);
+            TextUtil.Prune(_AreaOrigin);
+            TextUtil.Prune(_Label);
+            TextUtil.Prune(_Logo);
+
             Font font = TextUtil.CombatFont;
             if (font != null && ___text_current != null)
             {
@@ -2454,9 +2483,17 @@ namespace EnglishPatch.Hooks
         private static TextGenerator _Gen;
         private static TextGenerator _Generator => _Gen ?? (_Gen = new TextGenerator());
 
+        //"Turn" and the crossed swords of each round widget, looked for once
+        private static readonly System.Collections.Generic.Dictionary<WgBattleRound, Text> _Label = new System.Collections.Generic.Dictionary<WgBattleRound, Text>();
+        private static readonly System.Collections.Generic.Dictionary<WgBattleRound, Image> _Logo = new System.Collections.Generic.Dictionary<WgBattleRound, Image>();
+
         private static void TurnFirst(WgBattleRound round, Text number, Text winLose, GameObject tip)
         {
-            Text label = LabelOf(round, number, winLose, tip);
+            if (!_Label.TryGetValue(round, out Text label) || label == null || !label.isActiveAndEnabled)
+            {
+                label = LabelOf(round, number, winLose, tip);
+                _Label[round] = label;
+            }
             if (label == null || number.rectTransform.parent == null || label.rectTransform.parent == null)
             {
                 return;
@@ -2494,7 +2531,11 @@ namespace EnglishPatch.Hooks
             float space = Mathf.Abs(label.rectTransform.TransformVector(new Vector3(label.fontSize * SpaceWidth, 0f, 0f)).x);
             //"Turn 1" as a whole in the middle under the crossed swords above it, when they are found
             float width = labelInk.Value.width + space + numberInk.Value.width;
-            Image logo = LogoAbove(round, label, labelInk.Value, width);
+            if (!_Logo.TryGetValue(round, out Image logo) || logo == null || !logo.isActiveAndEnabled)
+            {
+                logo = LogoAbove(round, label, labelInk.Value, width);
+                _Logo[round] = logo;
+            }
             if (logo != null)
             {
                 Vector3[] corners = new Vector3[4];
@@ -3192,11 +3233,21 @@ namespace EnglishPatch.Hooks
                 return;
             }
 
-            foreach (object talent in talents)
+            //The texts of each trait, read once here and not on every placing
+            Text[] names = new Text[talents.Length];
+            Text[] descriptions = new Text[talents.Length];
+            for (int i = 0; i < talents.Length; i++)
             {
-                FitName(TextUtil.TextOf(Traverse.Create(talent).Field("name").GetValue<WGText>()));
+                Traverse talent = Traverse.Create(talents.GetValue(i));
+                names[i] = TextUtil.TextOf(talent.Field("name").GetValue<WGText>());
+                descriptions[i] = TextUtil.TextOf(talent.Field("description").GetValue<WGText>());
+            }
 
-                Text text = TextUtil.TextOf(Traverse.Create(talent).Field("description").GetValue<WGText>());
+            for (int i = 0; i < talents.Length; i++)
+            {
+                FitName(names[i]);
+
+                Text text = descriptions[i];
                 if (text == null || string.IsNullOrEmpty(text.text))
                 {
                     continue;
@@ -3217,18 +3268,17 @@ namespace EnglishPatch.Hooks
                 TextUtil.Justify(text);
             }
 
-            Place(talents);
             //The tab slides in and its layout is only finished in the next frames, until then the places measured can be off
-            Replacer.Run(__instance, () => Place(talents));
+            Replacer.Run(__instance, () => Place(names, descriptions));
         }
 
         //Puts the names and descriptions where they belong, from where the game put them (can be done again at any time)
-        internal static void Place(System.Array talents)
+        private static void Place(Text[] names, Text[] descriptions)
         {
-            foreach (object talent in talents)
+            for (int i = 0; i < names.Length; i++)
             {
-                Text text = TextUtil.TextOf(Traverse.Create(talent).Field("description").GetValue<WGText>());
-                Text name = TextUtil.TextOf(Traverse.Create(talent).Field("name").GetValue<WGText>());
+                Text text = descriptions[i];
+                Text name = names[i];
                 if (name != null && name.isActiveAndEnabled && !string.IsNullOrEmpty(name.text))
                 {
                     ResetPosition(name);
@@ -3237,9 +3287,7 @@ namespace EnglishPatch.Hooks
                 if (text != null && text.isActiveAndEnabled && !string.IsNullOrEmpty(text.text))
                 {
                     ResetPosition(text);
-                    RectTransform box = BoxOf(text);
-                    LogOnce(text, box);
-                    CenterInBox(text, box);
+                    CenterInBox(text, BoxOf(text));
                 }
             }
         }
@@ -3289,7 +3337,6 @@ namespace EnglishPatch.Hooks
         {
             RectTransform rect = name.rectTransform;
             Text title = TitleOf(name, description);
-            LogOnce(name, title == null ? null : title.rectTransform);
             //A group placing both would move the title along with the name
             if (title == null || (LayoutOf(name) != null && LayoutOf(name) == LayoutOf(title)))
             {
@@ -3305,8 +3352,25 @@ namespace EnglishPatch.Hooks
             Shift(name, rect.parent.InverseTransformVector(new Vector3(0f, titleMiddle.Value - nameMiddle.Value, 0f)).y);
         }
 
+        //The title found for each name, the items are reused so it is looked for once
+        private static readonly System.Collections.Generic.Dictionary<Text, Text> _Titles = new System.Collections.Generic.Dictionary<Text, Text>();
+
         //The "Traits" title on the same row as the name: the biggest other text nearby that overlaps it top to bottom
         private static Text TitleOf(Text name, Text description)
+        {
+            if (_Titles.TryGetValue(name, out Text cached) && cached != null && cached.isActiveAndEnabled)
+            {
+                return cached;
+            }
+            Text found = FindTitle(name, description);
+            if (found != null)
+            {
+                _Titles[name] = found;
+            }
+            return found;
+        }
+
+        private static Text FindTitle(Text name, Text description)
         {
             Vector3[] own = new Vector3[4];
             name.rectTransform.GetWorldCorners(own);
@@ -3372,35 +3436,6 @@ namespace EnglishPatch.Hooks
                 top = Mathf.Max(top, verts[i].position.y);
             }
             return (bottom + top) / 2f / pixelsPerUnit;
-        }
-
-        //Where the text and the boxes above it are, written once per text to the log (ModAPI console, F9)
-        private static readonly System.Collections.Generic.HashSet<Text> _Logged = new System.Collections.Generic.HashSet<Text>();
-
-        private static void LogOnce(Text text, RectTransform box)
-        {
-            if (!_Logged.Add(text))
-            {
-                return;
-            }
-
-            var line = new StringBuilder("[EnglishPatch] Trait text \"").Append(text.text.Length > 20 ? text.text.Substring(0, 20) : text.text).Append("\"");
-            for (Transform t = text.transform; t != null && t.GetComponent<UIForm>() == null; t = t.parent)
-            {
-                RectTransform rect = t as RectTransform;
-                line.Append(" | ").Append(t.name).Append(t == box ? " (box)" : "");
-                if (rect != null)
-                {
-                    line.Append(" size ").Append(rect.rect.size).Append(" pos ").Append(rect.anchoredPosition);
-                }
-                if (t.GetComponent<Image>() != null) line.Append(" Image");
-                LayoutGroup layout = t.GetComponent<LayoutGroup>();
-                if (layout != null) line.Append(" ").Append(layout.GetType().Name).Append(" pad ").Append(layout.padding).Append(" align ").Append(layout.childAlignment);
-                if (t.GetComponent<ContentSizeFitter>() != null) line.Append(" Fitter");
-                LayoutElement element = t.GetComponent<LayoutElement>();
-                if (element != null && element.ignoreLayout) line.Append(" ignoreLayout");
-            }
-            Debug.Log(line.ToString());
         }
 
         /*
@@ -3553,13 +3588,26 @@ namespace EnglishPatch.Hooks
      */
     public class Replacer : MonoBehaviour
     {
+        //Longest time a placing is repeated, for screens that slide in slowly
         private const float Duration = 1f;
+        //Frames always placed after an update, the layout of the screen settles in those
+        private const int SettleFrames = 3;
+        //Frames without the widget moving or changing size after which the placing stops
+        private const int StillFrames = 3;
 
         private System.Action _Place;
         private float _Until;
+        private int _Frames;
+        private int _Still;
+        private Matrix4x4 _LastMatrix;
+        private Vector2 _LastSize;
 
         public static void Run(Component widget, System.Action place)
         {
+            if (widget == null || place == null)
+            {
+                return;
+            }
             Replacer replacer = widget.GetComponent<Replacer>();
             if (replacer == null)
             {
@@ -3567,9 +3615,17 @@ namespace EnglishPatch.Hooks
             }
             replacer._Place = place;
             replacer._Until = Time.unscaledTime + Duration;
+            replacer._Frames = 0;
+            replacer._Still = 0;
             replacer.enabled = true;
+            //Placed once right away too, so the first frame drawn is already right when the layout is ready
+            replacer.Place();
         }
 
+        /*
+         * Placed on the first frames after the update, then only on frames where the widget moved or changed size
+         * (sliding in, the screen size changing), and stopped once it has been still for a few frames.
+         */
         private void LateUpdate()
         {
             if (_Place == null || Time.unscaledTime > _Until)
@@ -3577,6 +3633,29 @@ namespace EnglishPatch.Hooks
                 enabled = false;
                 return;
             }
+
+            Matrix4x4 matrix = transform.localToWorldMatrix;
+            RectTransform rect = transform as RectTransform;
+            Vector2 size = rect != null ? rect.rect.size : Vector2.zero;
+            bool moved = matrix != _LastMatrix || size != _LastSize;
+            _LastMatrix = matrix;
+            _LastSize = size;
+
+            _Frames++;
+            if (_Frames > SettleFrames && !moved)
+            {
+                if (++_Still >= StillFrames)
+                {
+                    enabled = false;
+                }
+                return;
+            }
+            _Still = 0;
+            Place();
+        }
+
+        private void Place()
+        {
             try
             {
                 _Place();
@@ -3584,6 +3663,7 @@ namespace EnglishPatch.Hooks
             catch (System.Exception e)
             {
                 Debug.LogError("[EnglishPatch] Could not place " + name + ": " + e.Message);
+                _Place = null;
                 enabled = false;
             }
         }
@@ -3601,19 +3681,36 @@ namespace EnglishPatch.Hooks
         private static TextGenerator _Gen;
         private static TextGenerator _Generator => _Gen ?? (_Gen = new TextGenerator());
 
-        public static void Place(UIBattleUnitMenu menu, Text[] hotKeys)
-        {
-            if (menu == null || !menu.isActiveAndEnabled)
-            {
-                return;
-            }
+        private static readonly AccessTools.FieldRef<UIBattleUnitMenu, WGSkillBtn[]> _Buttons = AccessTools.FieldRefAccess<UIBattleUnitMenu, WGSkillBtn[]>("skill_buttons");
+        private static readonly AccessTools.FieldRef<WGSkillBtn, Text> _SkillName = AccessTools.FieldRefAccess<WGSkillBtn, Text>("skill_name");
 
-            //The first skill name gives the height of the names, the others are the texts of the bar at that height
-            WGSkillBtn[] buttons = Traverse.Create(menu).Field("skill_buttons").GetValue<WGSkillBtn[]>();
-            Text first = null;
-            foreach (WGSkillBtn button in buttons ?? new WGSkillBtn[0])
+        //A placing for the bar as it is now: the names are looked for on its first run, then only placed again
+        public static System.Action Placer(UIBattleUnitMenu menu, Text[] hotKeys)
+        {
+            System.Collections.Generic.List<Text> names = null;
+            return () =>
             {
-                Text name = button == null ? null : Traverse.Create(button).Field("skill_name").GetValue<Text>();
+                if (menu == null || !menu.isActiveAndEnabled)
+                {
+                    return;
+                }
+                if (names == null || names.Count == 0 || names.Exists(text => text == null))
+                {
+                    names = Find(menu, hotKeys);
+                }
+                Place(names);
+            };
+        }
+
+        //The names of the bar: the texts at the height of the first skill name
+        private static System.Collections.Generic.List<Text> Find(UIBattleUnitMenu menu, Text[] hotKeys)
+        {
+            TextUtil.Prune(_Origin);
+            var names = new System.Collections.Generic.List<Text>();
+            Text first = null;
+            foreach (WGSkillBtn button in _Buttons(menu) ?? new WGSkillBtn[0])
+            {
+                Text name = button == null ? null : _SkillName(button);
                 if (name != null && name.isActiveAndEnabled)
                 {
                     first = name;
@@ -3622,10 +3719,9 @@ namespace EnglishPatch.Hooks
             }
             if (first == null)
             {
-                return;
+                return names;
             }
 
-            var names = new System.Collections.Generic.List<Text>();
             foreach (Text text in menu.GetComponentsInChildren<Text>())
             {
                 if (System.Array.IndexOf(hotKeys, text) < 0 && text.text != null && text.text.Trim().Length >= 2)
@@ -3641,6 +3737,11 @@ namespace EnglishPatch.Hooks
             float band = Middle(first.rectTransform);
             float bandHeight = Mathf.Abs(first.rectTransform.TransformVector(new Vector3(0f, first.rectTransform.rect.height, 0f)).y);
             names.RemoveAll(text => Mathf.Abs(Middle(text.rectTransform) - band) > bandHeight / 2f);
+            return names;
+        }
+
+        private static void Place(System.Collections.Generic.List<Text> names)
+        {
             if (names.Count == 0)
             {
                 return;
@@ -3818,11 +3919,15 @@ namespace EnglishPatch.Hooks
 
         public static void Postfix(UIBattle __instance, System.Collections.Generic.List<WGText> ___SkillHotKeys, UIBattleUnitMenu ___unit_menu)
         {
+            TextUtil.Prune(_Origin);
+            TextUtil.Prune(_Alpha);
+
             Text[] texts = ___SkillHotKeys == null ? new Text[0] : ___SkillHotKeys.ConvertAll(TextUtil.TextOf).ToArray();
+            System.Action names = SkillBarNames.Placer(___unit_menu, texts);
             Replacer.Run(__instance, () =>
             {
                 Place(texts);
-                SkillBarNames.Place(___unit_menu, texts);
+                names();
             });
         }
 
