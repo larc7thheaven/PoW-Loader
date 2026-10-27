@@ -707,7 +707,6 @@ namespace EnglishPatch.Hooks
 
         public static void Postfix(ref WGText __instance, ref Text ___text)
         {
-            //Debug.Log("WGText_setText_Hook");
             bool dialogue = TextUtil.DialogueTexts.Contains(__instance);
             ___text.font = dialogue ? TextUtil.DialogueFont : TextUtil.UIFont;
             ___text.fontSize = dialogue && EnglishPatch.DialogueFontSize > 0 ? EnglishPatch.DialogueFontSize : 20;
@@ -923,7 +922,6 @@ namespace EnglishPatch.Hooks
     {
         public static void Postfix(ref UICommission __instance)
         {
-            //Debug.Log("UICommission_Show_Hook");
             //Adjusting some elements to make the UI less scuffed (bc English texts are longer)
             RectTransform dynamicCanvas = (RectTransform)__instance.transform.Find("DynamicCanvas");
             RectTransform proclamation = (RectTransform)dynamicCanvas.transform.Find("Proclamation");
@@ -1006,7 +1004,6 @@ namespace EnglishPatch.Hooks
 
         public static void Postfix(WGStringTable __instance, string ___id)
         {
-            //Debug.Log("WGStringTable_UpdateString_Hook");
             Text text = __instance.GetComponent<Text>();
             text.font = TextUtil.UIFont;
             TextUtil.FitWrapping(text);
@@ -1043,7 +1040,6 @@ namespace EnglishPatch.Hooks
     {
         public static void Postfix(ref UIBattleStatus __instance)
         {
-            //Debug.Log("UIBattleStatus_UpdateView_Hook");
             __instance.FinalCounterAttack.GetComponent<Text>().horizontalOverflow = HorizontalWrapMode.Overflow;
             __instance.FinalCrit.GetComponent<Text>().horizontalOverflow = HorizontalWrapMode.Overflow;
             __instance.FinalDodge.GetComponent<Text>().horizontalOverflow = HorizontalWrapMode.Overflow;
@@ -1405,7 +1401,6 @@ namespace EnglishPatch.Hooks
     {
         public static void Postfix(ref UIQuest __instance, ref WGText ___questName, ref WGText ___description)
         {
-            //Debug.Log("UIQuest_SetTrackedQuest_Hook");
             ___questName.GetComponent<Text>().fontSize = 18;
             ___description.GetComponent<Text>().fontSize = 16;
             //Longer quest texts still ran out of the box at 16, those shrink until they fit
@@ -1418,7 +1413,6 @@ namespace EnglishPatch.Hooks
     {
         public static void Postfix(Text ___Name)
         {
-            //Debug.Log("WGBattleInfo_UpdateInfo_Hook");
             ___Name.font = TextUtil.UIFont;
             ___Name.horizontalOverflow = HorizontalWrapMode.Overflow;
         }
@@ -2219,7 +2213,6 @@ namespace EnglishPatch.Hooks
     {
         public static void Postfix(WGNurturanceBtn __instance)
         {
-            //Debug.Log("WGNurturanceBtn_UpdateButton_Hook");
             Text text = __instance.Btn_Name;
             text.font = TextUtil.UIFont;
             //Every label of the life menu (main row and all its pages) sits in the middle of its banner
@@ -2363,7 +2356,6 @@ namespace EnglishPatch.Hooks
     {
         public static bool Prefix()
         {
-            //Debug.Log("UIRegistration_NameCheck_Hook");
             return false;
         }
     }
@@ -2373,7 +2365,6 @@ namespace EnglishPatch.Hooks
     {
         public static bool Prefix(string word, ref bool __result)
         {
-            //Debug.Log("SteamPlatform_CheckWordLegality_Hook");
             __result = true;
             return false;
         }
@@ -2454,7 +2445,6 @@ namespace EnglishPatch.Hooks
     {
         public static void Postfix(WGBookBtn __instance, ref WGText ___itemName, System.Collections.Generic.List<WGImage> ___difficultIcons)
         {
-            //Debug.Log("WGBookBtn_UpdateWidget_Hook");
             //Long book names took 3 lines and ran into "Remaining Chapters", they shrink until they take at most 2
             TextUtil.ShrinkToLines(TextUtil.TextOf(___itemName), NameLines, NameMinSize);
             AlignChapters(__instance, TextUtil.TextOf(___itemName), ___difficultIcons);
@@ -2590,7 +2580,6 @@ namespace EnglishPatch.Hooks
     {
         public static void Postfix(ref WGText ___itemName)
         {
-            //Debug.Log("WGTraitBtn_UpdateWidget_Hook");
             Text text = ___itemName.GetComponent<Text>();
             text.alignment = TextAnchor.MiddleLeft;
             text.rectTransform.offsetMin = new Vector2(-120f, -20f);
@@ -2602,7 +2591,6 @@ namespace EnglishPatch.Hooks
     {
         public static void Postfix(ref Text ___Title)
         {
-            //Debug.Log("WGTitleValue_TitleFormat_Hook");
             ___Title.font = TextUtil.UIFont;
             ___Title.fontSize = 24;
             TrainingTipArrow.Raise(___Title);
@@ -3705,7 +3693,6 @@ namespace EnglishPatch.Hooks
     {
         public static void Postfix(ref Text ___Value)
         {
-            //Debug.Log("WGTitleValue_ValueFromat_Hook");
             ___Value.font = TextUtil.UIFont;
             ___Value.fontSize = 20;
             TrainingTipArrow.Raise(___Value);
@@ -3717,7 +3704,6 @@ namespace EnglishPatch.Hooks
     {
         public static void Postfix(UIRelationship __instance, ref Text ___community_name, ref Text ___community_introduction, WGFavorability[] ___community_fav_level)
         {
-            //Debug.Log("UIRelationship_UpdateRelationship_Hook");
             //Before fitting the abilities, so they are measured in the font they are shown in
             TextUtil.ReplaceGameFont(__instance, TextUtil.UIFont);
             RelationshipAbilities.Fit(___community_fav_level);
@@ -4975,7 +4961,6 @@ namespace EnglishPatch.Hooks
     {
         public static void Postfix(UIDate __instance)
         {
-            //Debug.Log("UIDate_SetYear_Hook");
             DateLayout.Layout(__instance);
         }
     }
@@ -4985,7 +4970,6 @@ namespace EnglishPatch.Hooks
     {
         public static void Postfix(UIDate __instance)
         {
-            //Debug.Log("UIDate_SetMonth_Hook");
             DateLayout.Layout(__instance);
         }
     }
@@ -5025,7 +5009,6 @@ namespace EnglishPatch.Hooks
     {
         public static void Postfix(ref UIMain __instance)
         {
-            //Debug.Log("UIMain_Show_Hook");
             RectTransform dynamicCanvas = (RectTransform)__instance.transform.Find("DynamicCanvas");
             RectTransform menu = (RectTransform)dynamicCanvas.transform.Find("Menu");
             //Updating the Credits Button Text
