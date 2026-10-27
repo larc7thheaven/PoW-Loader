@@ -2930,9 +2930,9 @@ namespace EnglishPatch.Hooks
 
             foreach (object talent in talents)
             {
-                PlaceName(TextUtil.TextOf(Traverse.Create(talent).Field("name").GetValue<WGText>()));
-
                 Text text = TextUtil.TextOf(Traverse.Create(talent).Field("description").GetValue<WGText>());
+                PlaceName(TextUtil.TextOf(Traverse.Create(talent).Field("name").GetValue<WGText>()), text);
+
                 if (text == null || string.IsNullOrEmpty(text.text))
                 {
                     continue;
@@ -2962,8 +2962,14 @@ namespace EnglishPatch.Hooks
             }
         }
 
-        //The trait name ("Gifted"): one line, centered both ways in its box, the same for every trait
-        private static void PlaceName(Text name)
+        /*
+         * The trait name ("Gifted") sits after the big "Traits :" title, in a smaller font, and was lower than it.
+         * It stays where it starts across, and is moved up or down so its letters have the same middle as the title's
+         * (middle of the capitals and lower case bands, see WGNurturanceBtn_UpdateButton_Hook).
+         */
+        private static readonly System.Collections.Generic.Dictionary<Text, TextAnchor> _Alignment = new System.Collections.Generic.Dictionary<Text, TextAnchor>();
+
+        private static void PlaceName(Text name, Text description)
         {
             if (name == null || string.IsNullOrEmpty(name.text))
             {
@@ -2978,12 +2984,104 @@ namespace EnglishPatch.Hooks
             }
             rect.anchoredPosition = origin;
 
-            name.alignment = TextAnchor.MiddleCenter;
-            name.horizontalOverflow = HorizontalWrapMode.Wrap;
+            if (!_Alignment.TryGetValue(name, out TextAnchor alignment))
+            {
+                alignment = name.alignment;
+                _Alignment[name] = alignment;
+            }
+            //Same side across as in the prefab, middle top to bottom
+            switch ((int)alignment % 3)
+            {
+                case 0: name.alignment = TextAnchor.MiddleLeft; break;
+                case 1: name.alignment = TextAnchor.MiddleCenter; break;
+                default: name.alignment = TextAnchor.MiddleRight; break;
+            }
             TextUtil.ShrinkToWidth(name, 12);
-            RectTransform box = BoxOf(name);
-            LogOnce(name, box);
-            CenterInBox(name, box);
+
+            Text title = TitleOf(name, description);
+            LogOnce(name, title == null ? null : title.rectTransform);
+            //A group placing both would move the title along with the name
+            if (title == null || (LayoutOf(name) != null && LayoutOf(name) == LayoutOf(title)))
+            {
+                return;
+            }
+            ResetLayout(name);
+            float? nameMiddle = VisualMiddle(name);
+            float? titleMiddle = VisualMiddle(title);
+            if (nameMiddle == null || titleMiddle == null || rect.parent == null)
+            {
+                return;
+            }
+            Shift(name, rect.parent.InverseTransformVector(new Vector3(0f, titleMiddle.Value - nameMiddle.Value, 0f)).y);
+        }
+
+        //The "Traits" title on the same row as the name: the biggest other text nearby that overlaps it top to bottom
+        private static Text TitleOf(Text name, Text description)
+        {
+            Vector3[] own = new Vector3[4];
+            name.rectTransform.GetWorldCorners(own);
+            Vector3[] corners = new Vector3[4];
+            Text best = null;
+            Transform root = name.transform.parent;
+            if (root != null && root.parent != null && root.GetComponent<UIForm>() == null)
+            {
+                root = root.parent;
+            }
+            if (root == null)
+            {
+                return null;
+            }
+            foreach (Text other in root.GetComponentsInChildren<Text>())
+            {
+                if (other == name || other == description || string.IsNullOrEmpty(other.text) || other.text.Trim().Length < 2)
+                {
+                    continue;
+                }
+                other.rectTransform.GetWorldCorners(corners);
+                if (corners[1].y <= own[0].y || corners[0].y >= own[1].y)
+                {
+                    continue;
+                }
+                if (best == null || other.fontSize > best.fontSize)
+                {
+                    best = other;
+                }
+            }
+            return best;
+        }
+
+        //World height of the middle between the capitals band and the lower case band of a one line text, where it is drawn
+        private static float? VisualMiddle(Text text)
+        {
+            RectTransform rect = text.rectTransform;
+            TextGenerationSettings settings = text.GetGenerationSettings(rect.rect.size);
+            settings.horizontalOverflow = HorizontalWrapMode.Overflow;
+            settings.verticalOverflow = VerticalWrapMode.Overflow;
+            settings.richText = false;
+            float? caps = LetterMiddle("H", settings, text.pixelsPerUnit);
+            float? lower = LetterMiddle("x", settings, text.pixelsPerUnit);
+            if (caps == null || lower == null)
+            {
+                return null;
+            }
+            return rect.TransformPoint(new Vector3(0f, (caps.Value + lower.Value) / 2f, 0f)).y;
+        }
+
+        private static float? LetterMiddle(string letter, TextGenerationSettings settings, float pixelsPerUnit)
+        {
+            _Generator.Populate(letter, settings);
+            System.Collections.Generic.IList<UIVertex> verts = _Generator.verts;
+            if (verts.Count < 4 || pixelsPerUnit <= 0f)
+            {
+                return null;
+            }
+            float bottom = float.MaxValue, top = float.MinValue;
+            for (int i = 0; i < 4; i++)
+            {
+                bottom = Mathf.Min(bottom, verts[i].position.y);
+                top = Mathf.Max(top, verts[i].position.y);
+            }
+            return (bottom + top) / 2f / pixelsPerUnit;
         }
 
         //Where the text and the boxes above it are, written once per text to the log (ModAPI console, F9)
@@ -3075,40 +3173,58 @@ namespace EnglishPatch.Hooks
          */
         private static void CenterInBox(Text text, RectTransform box)
         {
-            RectTransform rect = text.rectTransform;
-            LayoutGroup layout = rect.parent == null ? null : rect.parent.GetComponent<LayoutGroup>();
-            LayoutElement element = text.GetComponent<LayoutElement>();
-            if (element != null && element.ignoreLayout)
-            {
-                layout = null;
-            }
-            if (layout != null)
-            {
-                if (!_Padding.TryGetValue(layout, out RectOffset original))
-                {
-                    original = new RectOffset(layout.padding.left, layout.padding.right, layout.padding.top, layout.padding.bottom);
-                    _Padding[layout] = original;
-                }
-                layout.padding = new RectOffset(original.left, original.right, original.top, original.bottom);
-                LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)rect.parent);
-            }
-
+            ResetLayout(text);
             float? shift = ShiftToCenter(text, box);
-            if (shift == null)
+            if (shift != null)
+            {
+                Shift(text, shift.Value);
+            }
+        }
+
+        //The layout group that places the text, if any
+        private static LayoutGroup LayoutOf(Text text)
+        {
+            RectTransform rect = text.rectTransform;
+            LayoutElement element = text.GetComponent<LayoutElement>();
+            if (rect.parent == null || (element != null && element.ignoreLayout))
+            {
+                return null;
+            }
+            return rect.parent.GetComponent<LayoutGroup>();
+        }
+
+        //Puts back the prefab padding of the group placing the text, so it is measured where the game puts it
+        private static void ResetLayout(Text text)
+        {
+            LayoutGroup layout = LayoutOf(text);
+            if (layout == null)
             {
                 return;
             }
+            if (!_Padding.TryGetValue(layout, out RectOffset original))
+            {
+                original = new RectOffset(layout.padding.left, layout.padding.right, layout.padding.top, layout.padding.bottom);
+                _Padding[layout] = original;
+            }
+            layout.padding = new RectOffset(original.left, original.right, original.top, original.bottom);
+            LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)text.rectTransform.parent);
+        }
 
+        //Moves the text up by this much (units of its parent), through the padding of its layout group if it has one
+        private static void Shift(Text text, float shift)
+        {
+            LayoutGroup layout = LayoutOf(text);
             if (layout != null)
             {
-                int units = Mathf.RoundToInt(shift.Value);
+                ResetLayout(text);
+                int units = Mathf.RoundToInt(shift);
                 RectOffset original = _Padding[layout];
                 layout.padding = new RectOffset(original.left, original.right, original.top - units, original.bottom + units);
-                LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)rect.parent);
+                LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)text.rectTransform.parent);
             }
             else
             {
-                rect.anchoredPosition += new Vector2(0f, shift.Value);
+                text.rectTransform.anchoredPosition += new Vector2(0f, shift);
             }
         }
 
