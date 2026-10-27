@@ -2888,11 +2888,21 @@ namespace EnglishPatch.Hooks
         }
     }
 
-    //Status tab traits: the description shrinks (down to 15) to fit its box, and is justified
+    /*
+     * Status tab traits: the description shrinks (down to 15) to fit its box, and is justified. It sat near the top of the
+     * dark box behind it, with much less room below than above, so it is also centered in that box: the drawn letters of the
+     * whole text, as Unity lays them out, have the same room above and below.
+     */
     [HarmonyPatch(typeof(WGTalentItem), "UpdateWidget")]
     public class WGTalentItem_UpdateWidget_Hook
     {
         private const int MinSize = 15;
+        //Room kept above and below the text inside the box
+        private const float BoxPadding = 8f;
+
+        //Where each description is in the prefab, the items are reused for every character
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Origin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+        private static readonly TextGenerator _Generator = new TextGenerator();
 
         public static void Postfix(WGTalentItem __instance)
         {
@@ -2910,9 +2920,81 @@ namespace EnglishPatch.Hooks
                     continue;
                 }
 
+                RectTransform rect = text.rectTransform;
+                if (!_Origin.TryGetValue(rect, out Vector2 origin))
+                {
+                    origin = rect.anchoredPosition;
+                    _Origin[rect] = origin;
+                }
+                rect.anchoredPosition = origin;
+
+                RectTransform box = BoxOf(text);
                 TextUtil.ShrinkToHeight(text, MinSize);
+                float room = WorldHeight(box) - 2f * Mathf.Abs(box.TransformVector(new Vector3(0f, BoxPadding, 0f)).y);
+                while (Mathf.Abs(rect.TransformVector(new Vector3(0f, text.preferredHeight, 0f)).y) > room && text.fontSize > MinSize)
+                {
+                    text.fontSize--;
+                }
+
                 TextUtil.Justify(text);
+                CenterInBox(text, box);
             }
+        }
+
+        //The dark box behind a description: the closest parent with an image that spans the text, or the text's own rect
+        private static RectTransform BoxOf(Text text)
+        {
+            Vector3[] own = new Vector3[4];
+            text.rectTransform.GetWorldCorners(own);
+            Vector3[] corners = new Vector3[4];
+            for (Transform t = text.transform.parent; t != null; t = t.parent)
+            {
+                RectTransform rect = t as RectTransform;
+                if (rect == null || t.GetComponent<Image>() == null)
+                {
+                    continue;
+                }
+                rect.GetWorldCorners(corners);
+                if (corners[0].x <= own[0].x + 1f && corners[2].x >= own[2].x - 1f)
+                {
+                    return rect;
+                }
+            }
+            return text.rectTransform;
+        }
+
+        private static float WorldHeight(RectTransform rect)
+        {
+            Vector3[] corners = new Vector3[4];
+            rect.GetWorldCorners(corners);
+            return corners[1].y - corners[0].y;
+        }
+
+        //Moves the text so the top of its first line and the bottom of its last line are as far from the box edges
+        private static void CenterInBox(Text text, RectTransform box)
+        {
+            RectTransform rect = text.rectTransform;
+            _Generator.Populate(text.text, text.GetGenerationSettings(rect.rect.size));
+            System.Collections.Generic.IList<UIVertex> verts = _Generator.verts;
+            if (verts.Count == 0 || text.pixelsPerUnit <= 0f || rect.parent == null)
+            {
+                return;
+            }
+
+            float bottom = float.MaxValue, top = float.MinValue;
+            foreach (UIVertex vert in verts)
+            {
+                bottom = Mathf.Min(bottom, vert.position.y);
+                top = Mathf.Max(top, vert.position.y);
+            }
+            float inkMiddle = rect.TransformPoint(new Vector3(0f, (bottom + top) / 2f / text.pixelsPerUnit, 0f)).y;
+
+            Vector3[] corners = new Vector3[4];
+            box.GetWorldCorners(corners);
+            float boxMiddle = (corners[0].y + corners[1].y) / 2f;
+
+            float shift = rect.parent.InverseTransformVector(new Vector3(0f, boxMiddle - inkMiddle, 0f)).y;
+            rect.anchoredPosition += new Vector2(0f, shift);
         }
     }
 
