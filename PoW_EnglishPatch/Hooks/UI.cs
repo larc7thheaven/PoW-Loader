@@ -2495,6 +2495,11 @@ namespace EnglishPatch.Hooks
             area.GetWorldCorners(corners);
             float gap = Mathf.Abs(area.TransformVector(new Vector3(0f, ConditionGap, 0f)).y);
             float missing = ink.Value.height + 2f * gap - (corners[1].y - corners[0].y);
+            //A measure gone wrong would make a huge area: only a few lines more are ever needed
+            if (missing > (corners[1].y - corners[0].y) * 2f)
+            {
+                return;
+            }
             if (missing > 0f && area.parent != null && area.GetComponentInParent<LayoutGroup>() == null)
             {
                 //Taller by what is missing, with the top edge where it was
@@ -2504,7 +2509,7 @@ namespace EnglishPatch.Hooks
             }
 
             float? shift = WGTalentItem_UpdateWidget_Hook.ShiftToCenter(text, area);
-            if (shift != null)
+            if (shift != null && Mathf.Abs(shift.Value) < area.rect.height)
             {
                 rect.anchoredPosition += new Vector2(0f, shift.Value);
             }
@@ -2602,8 +2607,27 @@ namespace EnglishPatch.Hooks
                 up = SkillBarNames.Middle(band) - letters.Value;
             }
 
+            //A measure gone wrong (a font the measuring does not suit) would throw the texts far away: then the round is
+            //left as the game shows it. The real moves are a few letters wide at most.
+            float limit = labelInk.Value.height * 6f;
+            float baseline = labelBase.Value - numberBase.Value;
+            if (Mathf.Abs(up) > labelInk.Value.height)
+            {
+                up = 0f;
+            }
+            if (Mathf.Abs(baseline) > labelInk.Value.height)
+            {
+                baseline = 0f;
+            }
+            if (labelInk.Value.width <= 0f || Mathf.Abs(left - labelInk.Value.xMin) > limit
+                || Mathf.Abs(left + labelInk.Value.width + space - numberInk.Value.xMin) > limit)
+            {
+                Warn(round, "the moves measured were too big (" + label.text + ")");
+                return;
+            }
+
             Vector3 labelMove = new Vector3(left - labelInk.Value.xMin, up, 0f);
-            Vector3 numberMove = new Vector3(left + labelInk.Value.width + space - numberInk.Value.xMin, labelBase.Value - numberBase.Value + up, 0f);
+            Vector3 numberMove = new Vector3(left + labelInk.Value.width + space - numberInk.Value.xMin, baseline + up, 0f);
             //One inside the other moves along with it
             if (label.transform.IsChildOf(number.transform))
             {
@@ -2653,8 +2677,28 @@ namespace EnglishPatch.Hooks
         }
 
         //The "Turn" text: the closest other text of the round on the same height as the number, outside the conditions
+        //Written once per round widget to the log (F9) when the round is left as the game shows it
+        private static readonly System.Collections.Generic.HashSet<WgBattleRound> _Warned = new System.Collections.Generic.HashSet<WgBattleRound>();
+
+        private static void Warn(WgBattleRound round, string why)
+        {
+            if (_Warned.Add(round))
+            {
+                Debug.LogWarning("[EnglishPatch] Turn number not moved: " + why);
+            }
+        }
+
+        //The text written "Turn" (the translation of the round label), else the closest text on the number's height
         private static Text LabelOf(WgBattleRound round, Text number, Text winLose, GameObject tip)
         {
+            foreach (Text other in round.GetComponentsInChildren<Text>())
+            {
+                if (other != number && other.text != null && other.text.Trim().Equals("Turn", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    return other;
+                }
+            }
+
             Vector3[] own = new Vector3[4];
             number.rectTransform.GetWorldCorners(own);
             Vector3[] corners = new Vector3[4];
