@@ -749,13 +749,18 @@ namespace EnglishPatch.Hooks
     /*
      * The label under a buff or debuff icon in combat sits on a dark tab (OverlayIcon), which reads poorly behind the English
      * labels. Its images are hidden (HideBuffLabelBackground in the config file), the round icon and the label text stay.
-     * Done whenever an icon is set up or its label changes, the icons are reused for every buff.
+     * Without the tab the small label stood straight on the battlefield and looked washed out on light ground, so it gets a
+     * thin dark outline instead. Done whenever an icon is set up or its label changes, the icons are reused for every buff.
      */
     [HarmonyPatch]
     public class WGBufferIcon_LabelBackground_Hook
     {
         private static readonly AccessTools.FieldRef<WGBufferIcon, GameObject> _Tab = AccessTools.FieldRefAccess<WGBufferIcon, GameObject>("OverlayIcon");
         private static readonly AccessTools.FieldRef<WGBufferIcon, Image> _Icon = AccessTools.FieldRefAccess<WGBufferIcon, Image>("Icon");
+        private static readonly AccessTools.FieldRef<WGBufferIcon, Text> _Label = AccessTools.FieldRefAccess<WGBufferIcon, Text>("Overlay");
+
+        private static readonly Color OutlineColor = new Color(0f, 0f, 0f, 0.85f);
+        private static readonly Vector2 OutlineDistance = new Vector2(1f, -1f);
 
         public static System.Collections.Generic.IEnumerable<MethodBase> TargetMethods()
         {
@@ -778,6 +783,14 @@ namespace EnglishPatch.Hooks
                 {
                     image.enabled = false;
                 }
+            }
+
+            Text label = _Label(__instance);
+            if (label != null && label.GetComponent<Outline>() == null)
+            {
+                Outline outline = label.gameObject.AddComponent<Outline>();
+                outline.effectColor = OutlineColor;
+                outline.effectDistance = OutlineDistance;
             }
         }
     }
