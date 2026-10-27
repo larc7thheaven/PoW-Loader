@@ -3049,8 +3049,11 @@ namespace EnglishPatch.Hooks
     {
         private const float Padding = 12f;
         private const float MinScale = 0.6f;
+        //The text starts this much further left in the box
+        private const float ShiftLeft = 15f;
 
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _OffsetMax = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Position = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
 
         public static void Postfix(RectTransform ___AddEffectBack, Text ___AddEffectTip)
         {
@@ -3068,6 +3071,13 @@ namespace EnglishPatch.Hooks
                 _OffsetMax[rect] = offsetMax;
             }
             rect.offsetMax = offsetMax;
+            if (!_Position.TryGetValue(rect, out Vector2 position))
+            {
+                position = rect.anchoredPosition;
+                _Position[rect] = position;
+            }
+            rect.anchoredPosition = position - new Vector2(ShiftLeft, 0f);
+            offsetMax = rect.offsetMax;
 
             string original = text.text.Replace('\u00A0', ' ');
             text.horizontalOverflow = HorizontalWrapMode.Wrap;
