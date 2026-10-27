@@ -3477,6 +3477,142 @@ namespace EnglishPatch.Hooks
     }
 
     /*
+     * Combat skill bar: the names under the buttons (skill names, Gear, Medicine, Standby, Party Standby) are put on one
+     * line across the bar: the middle between the top of the capitals of the first line and the baseline of the last
+     * line, so a one line name and a two line name have the same middle, and letters going below the line do not count.
+     * The line is the average middle of the name areas.
+     */
+    internal static class SkillBarNames
+    {
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Origin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+        private static TextGenerator _Gen;
+        private static TextGenerator _Generator => _Gen ?? (_Gen = new TextGenerator());
+
+        public static void Place(UIBattleUnitMenu menu, Text[] hotKeys)
+        {
+            if (menu == null || !menu.isActiveAndEnabled)
+            {
+                return;
+            }
+
+            //The first skill name gives the height of the names, the others are the texts of the bar at that height
+            WGSkillBtn[] buttons = Traverse.Create(menu).Field("skill_buttons").GetValue<WGSkillBtn[]>();
+            Text first = null;
+            foreach (WGSkillBtn button in buttons ?? new WGSkillBtn[0])
+            {
+                Text name = button == null ? null : Traverse.Create(button).Field("skill_name").GetValue<Text>();
+                if (name != null && name.isActiveAndEnabled)
+                {
+                    first = name;
+                    break;
+                }
+            }
+            if (first == null)
+            {
+                return;
+            }
+
+            var names = new System.Collections.Generic.List<Text>();
+            foreach (Text text in menu.GetComponentsInChildren<Text>())
+            {
+                if (System.Array.IndexOf(hotKeys, text) < 0 && text.text != null && text.text.Trim().Length >= 2)
+                {
+                    //Only names moved before go back, the other texts are left as the game has them
+                    if (_Origin.TryGetValue(text.rectTransform, out Vector2 origin))
+                    {
+                        text.rectTransform.anchoredPosition = origin;
+                    }
+                    names.Add(text);
+                }
+            }
+            float band = Middle(first.rectTransform);
+            float bandHeight = Mathf.Abs(first.rectTransform.TransformVector(new Vector3(0f, first.rectTransform.rect.height, 0f)).y);
+            names.RemoveAll(text => Mathf.Abs(Middle(text.rectTransform) - band) > bandHeight / 2f);
+            if (names.Count == 0)
+            {
+                return;
+            }
+            foreach (Text text in names)
+            {
+                Reset(text.rectTransform);
+            }
+
+            float line = 0f;
+            foreach (Text text in names)
+            {
+                line += Middle(text.rectTransform);
+            }
+            line /= names.Count;
+
+            foreach (Text text in names)
+            {
+                float? middle = LettersMiddle(text);
+                RectTransform rect = text.rectTransform;
+                if (middle == null || rect.parent == null)
+                {
+                    continue;
+                }
+                rect.anchoredPosition += new Vector2(0f, rect.parent.InverseTransformVector(new Vector3(0f, line - middle.Value, 0f)).y);
+            }
+        }
+
+        private static void Reset(RectTransform rect)
+        {
+            if (!_Origin.TryGetValue(rect, out Vector2 origin))
+            {
+                origin = rect.anchoredPosition;
+                _Origin[rect] = origin;
+            }
+            rect.anchoredPosition = origin;
+        }
+
+        //World height of the middle of a rect
+        private static float Middle(RectTransform rect)
+        {
+            Vector3[] corners = new Vector3[4];
+            rect.GetWorldCorners(corners);
+            return (corners[0].y + corners[1].y) / 2f;
+        }
+
+        //World height of the middle between the capitals' top of the first line and the baseline of the last one
+        private static float? LettersMiddle(Text text)
+        {
+            RectTransform rect = text.rectTransform;
+            if (text.pixelsPerUnit <= 0f)
+            {
+                return null;
+            }
+
+            //Where an "H" starts and ends below the top of its line
+            TextGenerationSettings settings = text.GetGenerationSettings(rect.rect.size);
+            settings.richText = false;
+            _Generator.Populate("H", settings);
+            if (_Generator.verts.Count < 4 || _Generator.lineCount < 1)
+            {
+                return null;
+            }
+            float capTop = float.MinValue, baseline = float.MaxValue;
+            for (int i = 0; i < 4; i++)
+            {
+                capTop = Mathf.Max(capTop, _Generator.verts[i].position.y);
+                baseline = Mathf.Min(baseline, _Generator.verts[i].position.y);
+            }
+            float lineTop = _Generator.lines[0].topY;
+            float capBelowTop = lineTop - capTop, baseBelowTop = lineTop - baseline;
+
+            _Generator.Populate(text.text, text.GetGenerationSettings(rect.rect.size));
+            int count = _Generator.lineCount;
+            if (count < 1)
+            {
+                return null;
+            }
+            float top = _Generator.lines[0].topY - capBelowTop;
+            float bottom = _Generator.lines[count - 1].topY - baseBelowTop;
+            return rect.TransformPoint(new Vector3(0f, (top + bottom) / 2f / text.pixelsPerUnit, 0f)).y;
+        }
+    }
+
+    /*
      * Combat skill bar: the key numbers (1 to 9) under the buttons sat off the middle of the dark badge behind them.
      * Each one is put in the middle of its badge (its drawn digit, both ways), and the badge is lighter (more see-through), it was a heavy black spot.
      */
@@ -3567,14 +3703,14 @@ namespace EnglishPatch.Hooks
             yield return AccessTools.Method(typeof(UIBattle), "KeyHintShow");
         }
 
-        public static void Postfix(UIBattle __instance, System.Collections.Generic.List<WGText> ___SkillHotKeys)
+        public static void Postfix(UIBattle __instance, System.Collections.Generic.List<WGText> ___SkillHotKeys, UIBattleUnitMenu ___unit_menu)
         {
-            if (___SkillHotKeys == null)
+            Text[] texts = ___SkillHotKeys == null ? new Text[0] : ___SkillHotKeys.ConvertAll(TextUtil.TextOf).ToArray();
+            Replacer.Run(__instance, () =>
             {
-                return;
-            }
-            Text[] texts = ___SkillHotKeys.ConvertAll(TextUtil.TextOf).ToArray();
-            Replacer.Run(__instance, () => Place(texts));
+                Place(texts);
+                SkillBarNames.Place(___unit_menu, texts);
+            });
         }
 
         private static void Place(Text[] texts)
