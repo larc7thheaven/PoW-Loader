@@ -669,7 +669,12 @@ namespace EnglishPatch.Hooks
             }
 
             text.text = _Count.Replace(text.text, m => " " + m.Groups[1].Value + (m.Groups[1].Value == "1" ? " pc" : " pcs"));
+
+            //Long item names ran out of the reward box to the left, under the item icon
+            TextUtil.ShrinkToWidth(text, MinSize);
         }
+
+        private const int MinSize = 14;
     }
 
     /*
@@ -694,6 +699,9 @@ namespace EnglishPatch.Hooks
                 {
                     text.text = english;
                     text.font = TextUtil.UIFont;
+                    //The box is as wide as the Chinese text, the English one wrapped and its second line was cut off
+                    text.horizontalOverflow = HorizontalWrapMode.Overflow;
+                    text.verticalOverflow = VerticalWrapMode.Overflow;
                 }
             }
         }
