@@ -2639,11 +2639,7 @@ namespace EnglishPatch.Hooks
                 Warn(round, "no label found next to the number");
                 return;
             }
-            if (_Described.Add(round))
-            {
-                Debug.Log("[EnglishPatch] Turn label: '" + label.text + "' font " + (label.font != null ? label.font.name : "none") + " size "
-                    + label.fontSize + " alpha " + label.color.a + ", number '" + number.text + "' font " + (number.font != null ? number.font.name : "none"));
-            }
+            LayoutLog.Once("turn label " + round.GetInstanceID(), "Turn label: " + LayoutLog.Describe(label) + " | number: " + LayoutLog.Describe(number));
 
             //The number as big as "Turn", allowed past its area which is sized for the smaller number
             number.resizeTextForBestFit = false;
@@ -2659,6 +2655,7 @@ namespace EnglishPatch.Hooks
                 {
                     label.transform.SetSiblingIndex(number.transform.GetSiblingIndex());
                 }
+                LayoutLog.Once("turn layout " + round.GetInstanceID(), "Turn: placed by the layout " + layout.GetType().Name + ", only swapped");
                 return;
             }
 
@@ -2670,6 +2667,7 @@ namespace EnglishPatch.Hooks
             float? labelBase = Baseline(label);
             if (numberInk == null || labelInk == null || numberBase == null || labelBase == null)
             {
+                Warn(round, "nothing drawn when measured (label " + (labelInk != null) + ", number " + (numberInk != null) + ")");
                 return;
             }
 
@@ -2721,6 +2719,11 @@ namespace EnglishPatch.Hooks
             {
                 baseline = 0f;
             }
+            LayoutLog.Once("turn moves " + round.GetInstanceID() + " " + number.text, "Turn measures: label drawn " + LayoutLog.R(labelInk.Value) + ", number drawn "
+                + LayoutLog.R(numberInk.Value) + ", baselines " + labelBase.Value.ToString("F1") + " / " + numberBase.Value.ToString("F1")
+                + ", logo " + (logo != null ? logo.name : "none") + ", band " + (band != null ? band.name : "none") + ", up " + up.ToString("F1")
+                + ", label moves " + (left - labelInk.Value.xMin).ToString("F1") + ", number moves " + (left + labelInk.Value.width + space - numberInk.Value.xMin).ToString("F1")
+                + ", limit " + limit.ToString("F1"));
             if (labelInk.Value.width <= 0f || Mathf.Abs(left - labelInk.Value.xMin) > limit
                 || Mathf.Abs(left + labelInk.Value.width + space - numberInk.Value.xMin) > limit)
             {
@@ -2781,13 +2784,13 @@ namespace EnglishPatch.Hooks
         //The "Turn" text: the closest other text of the round on the same height as the number, outside the conditions
         //Written once per round widget to the log (F9) when the round is left as the game shows it
         private static readonly System.Collections.Generic.HashSet<WgBattleRound> _Warned = new System.Collections.Generic.HashSet<WgBattleRound>();
-        private static readonly System.Collections.Generic.HashSet<WgBattleRound> _Described = new System.Collections.Generic.HashSet<WgBattleRound>();
 
         private static void Warn(WgBattleRound round, string why)
         {
             if (_Warned.Add(round))
             {
                 Debug.LogWarning("[EnglishPatch] Turn number not moved: " + why);
+                LayoutLog.Once("turn warn " + round.GetInstanceID(), "Turn not moved: " + why);
             }
         }
 
@@ -3876,6 +3879,67 @@ namespace EnglishPatch.Hooks
     }
 
     /*
+     * BepInEx/EnglishPatch_Layout.log: how texts were measured and moved (Turn label, key numbers), one line per text,
+     * to find what goes wrong on another PC or with another font. Started empty every time the game starts.
+     */
+    internal static class LayoutLog
+    {
+        private static readonly string _Path = System.IO.Path.Combine(BepInEx.Paths.BepInExRootPath, "EnglishPatch_Layout.log");
+        private static readonly System.Collections.Generic.HashSet<string> _Written = new System.Collections.Generic.HashSet<string>();
+        private static bool _Started;
+
+        public static void Once(string key, string line)
+        {
+            if (!_Written.Add(key))
+            {
+                return;
+            }
+            try
+            {
+                if (!_Started)
+                {
+                    _Started = true;
+                    System.IO.File.WriteAllText(_Path, "English Patch layout log, screen " + Screen.width + "x" + Screen.height + "\n");
+                }
+                System.IO.File.AppendAllText(_Path, System.DateTime.Now.ToString("HH:mm:ss ") + line + "\n");
+            }
+            catch (System.Exception)
+            {
+                //The log is only a help, a file that cannot be written is left alone
+            }
+        }
+
+        public static string Describe(Text text)
+        {
+            if (text == null)
+            {
+                return "none";
+            }
+            RectTransform rect = text.rectTransform;
+            Vector3[] corners = new Vector3[4];
+            rect.GetWorldCorners(corners);
+            return "'" + text.text.Replace("\n", "\\n") + "' (" + text.name + ") font " + (text.font != null ? text.font.name : "none") + " size " + text.fontSize
+                + " align " + text.alignment + " color " + text.color + " active " + text.isActiveAndEnabled
+                + " area " + LayoutLog.V(rect.rect.size) + " at " + LayoutLog.V((corners[0] + corners[2]) / 2f) + " scale " + LayoutLog.V(rect.lossyScale);
+        }
+
+        public static string V(Vector2 v)
+        {
+            return "(" + v.x.ToString("F1") + ", " + v.y.ToString("F1") + ")";
+        }
+
+        public static string V(Vector3 v)
+        {
+            return "(" + v.x.ToString("F1") + ", " + v.y.ToString("F1") + ")";
+        }
+
+        public static string R(Rect r)
+        {
+            return "x " + r.xMin.ToString("F1") + ".." + r.xMax.ToString("F1") + " y " + r.yMin.ToString("F1") + ".." + r.yMax.ToString("F1");
+        }
+    }
+
+    /*
      * Combat skill bar: the names under the buttons (skill names, Gear, Medicine, Standby, Party Standby) are put on one
      * line across the bar: the middle between the top of the capitals of the first line and the baseline of the last
      * line, so a one line name and a two line name have the same middle, and letters going below the line do not count.
@@ -4293,13 +4357,23 @@ namespace EnglishPatch.Hooks
                 Vector3? ink = InkCenter(text);
                 if (ink == null)
                 {
+                    LayoutLog.Once("key " + text.GetInstanceID(), "Key number '" + text.text + "': nothing drawn when measured, " + LayoutLog.Describe(text));
                     continue;
                 }
                 Vector3[] corners = new Vector3[4];
                 badge.rectTransform.GetWorldCorners(corners);
                 Vector3 middle = (corners[0] + corners[2]) / 2f;
                 Vector3 shift = rect.parent.InverseTransformVector(middle - ink.Value);
-                rect.anchoredPosition = origin + new Vector2(shift.x, shift.y);
+                //The number is moved within its badge, a move bigger than the badge is a measure gone wrong
+                Vector2 badgeSize = badge.rectTransform.rect.size;
+                bool sane = Mathf.Abs(shift.x) <= badgeSize.x && Mathf.Abs(shift.y) <= badgeSize.y;
+                LayoutLog.Once("key " + text.GetInstanceID(), "Key number '" + text.text + "': " + LayoutLog.Describe(text)
+                    + ", drawn middle " + LayoutLog.V(ink.Value) + ", badge '" + badge.name + "' size " + LayoutLog.V(badgeSize)
+                    + " middle " + LayoutLog.V(middle) + ", move " + LayoutLog.V(shift) + (sane ? "" : " TOO BIG, not moved"));
+                if (sane)
+                {
+                    rect.anchoredPosition = origin + new Vector2(shift.x, shift.y);
+                }
             }
         }
 
