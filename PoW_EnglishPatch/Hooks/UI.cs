@@ -2424,6 +2424,16 @@ namespace EnglishPatch.Hooks
 
             float left = Mathf.Min(numberInk.Value.xMin, labelInk.Value.xMin);
             float space = Mathf.Abs(label.rectTransform.TransformVector(new Vector3(label.fontSize * SpaceWidth, 0f, 0f)).x);
+            //"Turn 1" as a whole in the middle under the crossed swords above it, when they are found
+            float width = labelInk.Value.width + space + numberInk.Value.width;
+            Image logo = LogoAbove(round, label, labelInk.Value, width);
+            if (logo != null)
+            {
+                Vector3[] corners = new Vector3[4];
+                logo.rectTransform.GetWorldCorners(corners);
+                left = (corners[0].x + corners[2].x) / 2f - width / 2f;
+            }
+
             Vector3 labelMove = new Vector3(left - labelInk.Value.xMin, 0f, 0f);
             Vector3 numberMove = new Vector3(left + labelInk.Value.width + space - numberInk.Value.xMin, labelBase.Value - numberBase.Value, 0f);
             //One inside the other moves along with it
@@ -2437,6 +2447,41 @@ namespace EnglishPatch.Hooks
             }
             Move(label, labelMove);
             Move(number, numberMove);
+        }
+
+        /*
+         * The crossed swords: the closest small image above "Turn", on the round or next to it, not further to the side than
+         * the width of "Turn 1". Small is up to about two times the height of "Turn" each way, the backgrounds are bigger.
+         */
+        private static Image LogoAbove(WgBattleRound round, Text label, Rect ink, float width)
+        {
+            float size = ink.height * 2.5f;
+            float middle = ink.xMin + width / 2f;
+            Vector3[] corners = new Vector3[4];
+            Image best = null;
+            float bestDistance = float.MaxValue;
+            Transform root = round.transform.parent != null ? round.transform.parent : round.transform;
+            foreach (Image image in root.GetComponentsInChildren<Image>())
+            {
+                if (label.transform.IsChildOf(image.transform))
+                {
+                    continue;
+                }
+                image.rectTransform.GetWorldCorners(corners);
+                float w = corners[2].x - corners[0].x, h = corners[1].y - corners[0].y;
+                float x = (corners[0].x + corners[2].x) / 2f;
+                if (w > size || h > size || w <= 0f || corners[0].y < ink.yMax || Mathf.Abs(x - middle) > width)
+                {
+                    continue;
+                }
+                float distance = corners[0].y - ink.yMax;
+                if (distance < bestDistance)
+                {
+                    best = image;
+                    bestDistance = distance;
+                }
+            }
+            return best;
         }
 
         //The "Turn" text: the closest other text of the round on the same height as the number, outside the conditions
