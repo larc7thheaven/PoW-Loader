@@ -3478,7 +3478,7 @@ namespace EnglishPatch.Hooks
 
     /*
      * Combat skill bar: the key numbers (1 to 9) under the buttons sat off the middle of the dark badge behind them.
-     * Each one is put in the middle of its badge (its drawn digit, both ways), and the badge is a little less see-through.
+     * Each one is put in the middle of its badge (its drawn digit, both ways), and the badge is lighter (more see-through), it was a heavy black spot.
      */
     /*
      * Tooltip texts (the skill Effect in combat, buffs, traits): the row is made exactly as high as the text, and a line
@@ -3549,8 +3549,8 @@ namespace EnglishPatch.Hooks
     [HarmonyPatch]
     public class UIBattle_SkillHotKeys_Hook
     {
-        //How much more opaque the badges get
-        private const float BadgeAlpha = 0.2f;
+        //Part of the prefab opacity the badges keep
+        private const float BadgeAlpha = 0.5f;
 
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Origin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
         private static readonly System.Collections.Generic.Dictionary<Image, float> _Alpha = new System.Collections.Generic.Dictionary<Image, float>();
@@ -3605,7 +3605,7 @@ namespace EnglishPatch.Hooks
                     _Alpha[badge] = alpha;
                 }
                 Color color = badge.color;
-                color.a = Mathf.Min(1f, alpha + BadgeAlpha);
+                color.a = alpha * BadgeAlpha;
                 badge.color = color;
 
                 Vector3? ink = InkCenter(text);
