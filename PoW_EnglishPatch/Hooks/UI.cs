@@ -2462,6 +2462,12 @@ namespace EnglishPatch.Hooks
                 return;
             }
 
+            //The number as big as "Turn", allowed past its area which is sized for the smaller number
+            number.resizeTextForBestFit = false;
+            number.fontSize = label.fontSize;
+            number.horizontalOverflow = HorizontalWrapMode.Overflow;
+            number.verticalOverflow = VerticalWrapMode.Overflow;
+
             LayoutGroup layout = number.transform.parent.GetComponent<LayoutGroup>();
             if (layout != null && label.transform.parent == number.transform.parent)
             {
