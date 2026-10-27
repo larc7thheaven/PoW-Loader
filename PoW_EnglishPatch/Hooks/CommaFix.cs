@@ -3,6 +3,8 @@ using System.Text;
 
 using HarmonyLib;
 
+using Heluo.Data;
+
 using UnityEngine.UI;
 
 namespace EnglishPatch.Hooks
@@ -54,10 +56,12 @@ namespace EnglishPatch.Hooks
     [HarmonyPatch]
     public class MantraEffectDescriptionConverter_StringToField_Hook
     {
-        //Looked up by name: the converter derives from FileHelpers, which the project does not reference
+        //Looked up by name: the converter derives from FileHelpers, which the project does not reference.
+        //Asking the game assembly directly avoids scanning every type of every loaded assembly.
         public static MethodBase TargetMethod()
         {
-            return AccessTools.Method("Heluo.Data.Converter.MantraEffectDescriptionConverter:StringToField");
+            var converter = typeof(GameData).Assembly.GetType("Heluo.Data.Converter.MantraEffectDescriptionConverter");
+            return AccessTools.Method(converter, "StringToField");
         }
 
         public static void Prefix(ref string from)
