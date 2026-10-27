@@ -2039,6 +2039,20 @@ namespace EnglishPatch.Hooks
         }
     }
 
+    //The turn number of the battle screen kept the game's font, it gets the CombatFont directly every time the turn changes
+    [HarmonyPatch(typeof(WgBattleRound), "UpdateRound")]
+    public class WgBattleRound_UpdateRound_Hook
+    {
+        public static void Postfix(Text ___text_current)
+        {
+            Font font = TextUtil.CombatFont;
+            if (font != null && ___text_current != null)
+            {
+                ___text_current.font = font;
+            }
+        }
+    }
+
     /*
      * Screens that still had texts in the game's own font get the English font from the config file (Font, Arial by default)
      * like the rest of the English texts. Done every time the screen is shown.
