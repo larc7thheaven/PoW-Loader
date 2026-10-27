@@ -2930,6 +2930,8 @@ namespace EnglishPatch.Hooks
 
             foreach (object talent in talents)
             {
+                PlaceName(TextUtil.TextOf(Traverse.Create(talent).Field("name").GetValue<WGText>()));
+
                 Text text = TextUtil.TextOf(Traverse.Create(talent).Field("description").GetValue<WGText>());
                 if (text == null || string.IsNullOrEmpty(text.text))
                 {
@@ -2952,31 +2954,110 @@ namespace EnglishPatch.Hooks
                     text.fontSize--;
                 }
 
+                //Middle of its own rect first, then the drawn letters are centered in the box
+                text.alignment = TextAnchor.MiddleLeft;
                 TextUtil.Justify(text);
+                LogOnce(text, box);
                 CenterInBox(text, box);
             }
         }
 
-        //The dark box behind a description: the closest parent with an image that spans the text, or the text's own rect
+        //The trait name ("Gifted"): one line, centered both ways in its box, the same for every trait
+        private static void PlaceName(Text name)
+        {
+            if (name == null || string.IsNullOrEmpty(name.text))
+            {
+                return;
+            }
+
+            RectTransform rect = name.rectTransform;
+            if (!_Origin.TryGetValue(rect, out Vector2 origin))
+            {
+                origin = rect.anchoredPosition;
+                _Origin[rect] = origin;
+            }
+            rect.anchoredPosition = origin;
+
+            name.alignment = TextAnchor.MiddleCenter;
+            name.horizontalOverflow = HorizontalWrapMode.Wrap;
+            TextUtil.ShrinkToWidth(name, 12);
+            RectTransform box = BoxOf(name);
+            LogOnce(name, box);
+            CenterInBox(name, box);
+        }
+
+        //Where the text and the boxes above it are, written once per text to the log (ModAPI console, F9)
+        private static readonly System.Collections.Generic.HashSet<Text> _Logged = new System.Collections.Generic.HashSet<Text>();
+
+        private static void LogOnce(Text text, RectTransform box)
+        {
+            if (!_Logged.Add(text))
+            {
+                return;
+            }
+
+            var line = new StringBuilder("[EnglishPatch] Trait text \"").Append(text.text.Length > 20 ? text.text.Substring(0, 20) : text.text).Append("\"");
+            for (Transform t = text.transform; t != null && t.GetComponent<UIForm>() == null; t = t.parent)
+            {
+                RectTransform rect = t as RectTransform;
+                line.Append(" | ").Append(t.name).Append(t == box ? " (box)" : "");
+                if (rect != null)
+                {
+                    line.Append(" size ").Append(rect.rect.size).Append(" pos ").Append(rect.anchoredPosition);
+                }
+                if (t.GetComponent<Image>() != null) line.Append(" Image");
+                LayoutGroup layout = t.GetComponent<LayoutGroup>();
+                if (layout != null) line.Append(" ").Append(layout.GetType().Name).Append(" pad ").Append(layout.padding).Append(" align ").Append(layout.childAlignment);
+                if (t.GetComponent<ContentSizeFitter>() != null) line.Append(" Fitter");
+                LayoutElement element = t.GetComponent<LayoutElement>();
+                if (element != null && element.ignoreLayout) line.Append(" ignoreLayout");
+            }
+            Debug.Log(line.ToString());
+        }
+
+        /*
+         * The dark box behind a text: the smallest image that spans the text across and holds its middle, among its parents
+         * and their other children (the box can be an image drawn behind the text, not only one of its parents).
+         * The text's own rect when there is none.
+         */
         private static RectTransform BoxOf(Text text)
         {
             Vector3[] own = new Vector3[4];
             text.rectTransform.GetWorldCorners(own);
+            float middle = (own[0].y + own[1].y) / 2f;
             Vector3[] corners = new Vector3[4];
-            for (Transform t = text.transform.parent; t != null; t = t.parent)
+            RectTransform best = null;
+            float bestArea = float.MaxValue;
+            int levels = 0;
+            for (Transform t = text.transform.parent; t != null && levels < 4 && t.GetComponent<UIForm>() == null; t = t.parent, levels++)
             {
-                RectTransform rect = t as RectTransform;
-                if (rect == null || t.GetComponent<Image>() == null)
+                Consider(t);
+                foreach (Transform child in t)
                 {
-                    continue;
-                }
-                rect.GetWorldCorners(corners);
-                if (corners[0].x <= own[0].x + 1f && corners[2].x >= own[2].x - 1f)
-                {
-                    return rect;
+                    if (child != text.transform && child.gameObject.activeInHierarchy)
+                    {
+                        Consider(child);
+                    }
                 }
             }
-            return text.rectTransform;
+            return best ?? text.rectTransform;
+
+            void Consider(Transform t)
+            {
+                RectTransform rect = t as RectTransform;
+                Image image = t.GetComponent<Image>();
+                if (rect == null || image == null || !image.enabled)
+                {
+                    return;
+                }
+                rect.GetWorldCorners(corners);
+                float area = (corners[2].x - corners[0].x) * (corners[1].y - corners[0].y);
+                if (corners[0].x <= own[0].x + 1f && corners[2].x >= own[2].x - 1f && corners[0].y < middle && corners[1].y > middle && area < bestArea)
+                {
+                    best = rect;
+                    bestArea = area;
+                }
+            }
         }
 
         private static float WorldHeight(RectTransform rect)
@@ -2986,15 +3067,62 @@ namespace EnglishPatch.Hooks
             return corners[1].y - corners[0].y;
         }
 
-        //Moves the text so the top of its first line and the bottom of its last line are as far from the box edges
+        /*
+         * Moves the text so the top of its first line and the bottom of its last line are as far from the box edges.
+         * When a layout group places the text, a moved text is put back by the next layout pass, so the shift goes into the
+         * group's padding instead (more at the top and less at the bottom moves it down by the same amount, whatever the
+         * child alignment). The padding of each group is always taken from the prefab, the items are reused.
+         */
         private static void CenterInBox(Text text, RectTransform box)
+        {
+            RectTransform rect = text.rectTransform;
+            LayoutGroup layout = rect.parent == null ? null : rect.parent.GetComponent<LayoutGroup>();
+            LayoutElement element = text.GetComponent<LayoutElement>();
+            if (element != null && element.ignoreLayout)
+            {
+                layout = null;
+            }
+            if (layout != null)
+            {
+                if (!_Padding.TryGetValue(layout, out RectOffset original))
+                {
+                    original = new RectOffset(layout.padding.left, layout.padding.right, layout.padding.top, layout.padding.bottom);
+                    _Padding[layout] = original;
+                }
+                layout.padding = new RectOffset(original.left, original.right, original.top, original.bottom);
+                LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)rect.parent);
+            }
+
+            float? shift = ShiftToCenter(text, box);
+            if (shift == null)
+            {
+                return;
+            }
+
+            if (layout != null)
+            {
+                int units = Mathf.RoundToInt(shift.Value);
+                RectOffset original = _Padding[layout];
+                layout.padding = new RectOffset(original.left, original.right, original.top - units, original.bottom + units);
+                LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)rect.parent);
+            }
+            else
+            {
+                rect.anchoredPosition += new Vector2(0f, shift.Value);
+            }
+        }
+
+        private static readonly System.Collections.Generic.Dictionary<LayoutGroup, RectOffset> _Padding = new System.Collections.Generic.Dictionary<LayoutGroup, RectOffset>();
+
+        //How far up the text has to move (in the units of its parent) so its drawn letters are in the middle of the box
+        private static float? ShiftToCenter(Text text, RectTransform box)
         {
             RectTransform rect = text.rectTransform;
             _Generator.Populate(text.text, text.GetGenerationSettings(rect.rect.size));
             System.Collections.Generic.IList<UIVertex> verts = _Generator.verts;
             if (verts.Count == 0 || text.pixelsPerUnit <= 0f || rect.parent == null)
             {
-                return;
+                return null;
             }
 
             float bottom = float.MaxValue, top = float.MinValue;
@@ -3009,8 +3137,7 @@ namespace EnglishPatch.Hooks
             box.GetWorldCorners(corners);
             float boxMiddle = (corners[0].y + corners[1].y) / 2f;
 
-            float shift = rect.parent.InverseTransformVector(new Vector3(0f, boxMiddle - inkMiddle, 0f)).y;
-            rect.anchoredPosition += new Vector2(0f, shift);
+            return rect.parent.InverseTransformVector(new Vector3(0f, boxMiddle - inkMiddle, 0f)).y;
         }
     }
 
