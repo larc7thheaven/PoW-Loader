@@ -40,6 +40,10 @@ namespace EnglishPatch
         //Hides the dark tab behind the labels under the buff and debuff icons in combat
         public static bool HideBuffLabelBackground { get; private set; } = true;
 
+        //Font and size of the dialogue text in the talk box, empty and 0 keep the English font and its size
+        public static string DialogueFontName { get; private set; } = "";
+        public static int DialogueFontSize { get; private set; } = 0;
+
         //Values of the ChristmasTitle setting
         private const string ChristmasAuto = "Auto";
         private const string ChristmasAlways = "Always";
@@ -80,6 +84,11 @@ namespace EnglishPatch
                 "Font for the combat texts that are written in the game's own font, DFKai-SB (skill names, victory and failure " +
                 "conditions...). Leave it empty to keep the game's font. Otherwise any font installed in Windows, by its name " +
                 "as for Font (for example Arial). A font that is not installed falls back to Arial. Restart the game after changing it.").Value;
+            DialogueFontName = Config.Bind("Text", "DialogueFont", "",
+                "Font for the dialogue text in the talk box only. Leave it empty to use Font. Otherwise any font installed in Windows, " +
+                "by its name as for Font. A font that is not installed falls back to Arial. Restart the game after changing it.").Value;
+            DialogueFontSize = Config.Bind("Text", "DialogueFontSize", 0,
+                "Size of the dialogue text in the talk box. 0 keeps the size of the other English texts (20). Restart the game after changing it.").Value;
             HideBuffLabelBackground = Config.Bind("Text", "HideBuffLabelBackground", true,
                 "Hide the dark background behind the labels under the buff and debuff icons in combat (\"Regeneration Lv 3\"). " +
                 "Restart the game after changing it.").Value;
