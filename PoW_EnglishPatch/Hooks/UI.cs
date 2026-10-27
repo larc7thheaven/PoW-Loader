@@ -4568,9 +4568,7 @@ namespace EnglishPatch.Hooks
                     LayoutLog.Once("key " + text.GetInstanceID(), "Key number '" + text.text + "': nothing drawn when measured, " + LayoutLog.Describe(text));
                     continue;
                 }
-                Vector3[] corners = new Vector3[4];
-                badge.rectTransform.GetWorldCorners(corners);
-                Vector3 middle = (corners[0] + corners[2]) / 2f;
+                Vector3 middle = DrawnMiddle(badge);
                 Vector3 shift = rect.parent.InverseTransformVector(middle - ink.Value);
                 //The number is moved within its badge, a move bigger than the badge is a measure gone wrong
                 Vector2 badgeSize = badge.rectTransform.rect.size;
@@ -4583,6 +4581,25 @@ namespace EnglishPatch.Hooks
                     rect.anchoredPosition = origin + new Vector2(shift.x, shift.y);
                 }
             }
+        }
+
+        /*
+         * World middle of what the badge draws: an image can have a transparent margin around its picture (wider on one
+         * side), then the middle of its area is not the middle of the diamond seen. The margin is taken off when known.
+         */
+        private static Vector3 DrawnMiddle(Image badge)
+        {
+            RectTransform rect = badge.rectTransform;
+            Rect area = rect.rect;
+            Sprite sprite = badge.sprite;
+            if (sprite != null && badge.type == Image.Type.Simple && !badge.preserveAspect && sprite.rect.width > 0f && sprite.rect.height > 0f)
+            {
+                Vector4 padding = UnityEngine.Sprites.DataUtility.GetPadding(sprite);
+                Vector2 size = sprite.rect.size;
+                area = Rect.MinMaxRect(area.xMin + area.width * padding.x / size.x, area.yMin + area.height * padding.y / size.y,
+                    area.xMax - area.width * padding.z / size.x, area.yMax - area.height * padding.w / size.y);
+            }
+            return rect.TransformPoint(area.center);
         }
 
         //The smallest image around the number, the number itself or one next to it, no more than a few times its size
