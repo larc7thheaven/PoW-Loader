@@ -3973,6 +3973,10 @@ namespace EnglishPatch.Hooks
                 return;
             }
 
+            //The rows are reused: a justified text is set to not wrap (its lines are made by Justify), so the next text
+            //would stay on one line. Wrapping first, so the text is measured and justified at the width of the row.
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+
             //Words wrap at spaces, the game's non-breaking spaces made lines break inside words ("fro / m")
             if (text.text.IndexOf(' ') >= 0)
             {
