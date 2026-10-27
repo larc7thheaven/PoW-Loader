@@ -672,6 +672,33 @@ namespace EnglishPatch.Hooks
         }
     }
 
+    /*
+     * Some texts are written straight into a screen's prefab in Chinese, not taken from the text files, so no translation
+     * reaches them. They are replaced when the screen is shown, and get the English font.
+     */
+    [HarmonyPatch(typeof(UIEvaluation), "Show")]
+    public class UIEvaluation_Show_FixedTexts_Hook
+    {
+        private static readonly System.Collections.Generic.Dictionary<string, string> _Texts = new System.Collections.Generic.Dictionary<string, string>
+        {
+            //Bottom of the quest result screen, same wording as SecondaryInterface2903
+            { "按下任意鍵繼續遊戲", "Press Any Key to Continue" },
+            { "按下任意键继续游戏", "Press Any Key to Continue" },
+        };
+
+        public static void Postfix(UIEvaluation __instance)
+        {
+            foreach (Text text in __instance.GetComponentsInChildren<Text>(true))
+            {
+                if (text.text != null && _Texts.TryGetValue(text.text.Trim(), out string english))
+                {
+                    text.text = english;
+                    text.font = TextUtil.UIFont;
+                }
+            }
+        }
+    }
+
     [HarmonyPatch(typeof(UICommission), "Show")]
     public class UICommission_Show_Hook
     {
