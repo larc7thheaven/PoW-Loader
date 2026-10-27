@@ -3793,7 +3793,7 @@ namespace EnglishPatch.Hooks
     public class UIBattle_SkillHotKeys_Hook
     {
         //Part of the prefab opacity the badges keep
-        private const float BadgeAlpha = 0.5f;
+        private const float BadgeAlpha = 0.8f;
 
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Origin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
         private static readonly System.Collections.Generic.Dictionary<Image, float> _Alpha = new System.Collections.Generic.Dictionary<Image, float>();
