@@ -660,7 +660,7 @@ namespace EnglishPatch.Hooks
     {
         private static readonly System.Text.RegularExpressions.Regex _Count = new System.Text.RegularExpressions.Regex(@"\s*[xX×](\d+)$");
 
-        public static void Postfix(WGText ___content)
+        public static void Postfix(WGText ___content, WGImage ___icon)
         {
             Text text = TextUtil.TextOf(___content);
             if (text == null || string.IsNullOrEmpty(text.text))
@@ -672,9 +672,81 @@ namespace EnglishPatch.Hooks
 
             //Long item names ran out of the reward box to the left, under the item icon
             TextUtil.ShrinkToWidth(text, MinSize);
+            PlaceReward(text, ___icon);
+        }
+
+        /*
+         * Rewards were centered while the criteria above them are left aligned. They are left aligned now and start where the
+         * criteria texts start, never left of the item icon (with a small gap). A reward wider than the room from there to the
+         * right edge of its box shrinks to fit. The rows are reused for every reward, so the position is always taken from the
+         * one the game gave the text.
+         */
+        private static void PlaceReward(Text text, WGImage icon)
+        {
+            RectTransform rect = text.rectTransform;
+            if (!_Origin.TryGetValue(rect, out Vector2 origin))
+            {
+                origin = rect.anchoredPosition;
+                _Origin[rect] = origin;
+            }
+            rect.anchoredPosition = origin;
+            text.alignment = TextAnchor.MiddleLeft;
+
+            float boxLeft = rect.TransformPoint(new Vector3(rect.rect.xMin, 0f, 0f)).x;
+            float boxRight = rect.TransformPoint(new Vector3(rect.rect.xMax, 0f, 0f)).x;
+
+            //Where the criteria texts start, or the left of the box
+            float start = boxLeft;
+            Text criteria = CriteriaText(text);
+            if (criteria != null)
+            {
+                TextUtil.VisibleX(criteria, out start, out _);
+            }
+
+            RectTransform iconRect = icon == null ? null : icon.transform as RectTransform;
+            if (iconRect != null)
+            {
+                Vector3[] corners = new Vector3[4];
+                iconRect.GetWorldCorners(corners);
+                start = Mathf.Max(start, corners[2].x + rect.TransformVector(new Vector3(IconGap, 0f, 0f)).x);
+            }
+
+            float room = boxRight - start;
+            while (rect.TransformVector(new Vector3(text.preferredWidth, 0f, 0f)).x > room && text.fontSize > MinSize)
+            {
+                text.fontSize--;
+            }
+
+            rect.anchoredPosition = origin + new Vector2(rect.InverseTransformVector(new Vector3(start - boxLeft, 0f, 0f)).x, 0f);
+        }
+
+        //Text of the first criteria line of the result screen the reward belongs to
+        private static Text CriteriaText(Text reward)
+        {
+            UIEvaluation form = reward.GetComponentInParent<UIEvaluation>();
+            WGEvaluationPoint[] points = form == null ? null : _Points(form);
+            if (points == null)
+            {
+                return null;
+            }
+
+            foreach (WGEvaluationPoint point in points)
+            {
+                Text text = point == null ? null : TextUtil.TextOf(_Description(point));
+                if (text != null)
+                {
+                    return text;
+                }
+            }
+            return null;
         }
 
         private const int MinSize = 14;
+        //Room left between the item icon and the text
+        private const float IconGap = 8f;
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Origin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+        private static readonly AccessTools.FieldRef<UIEvaluation, WGEvaluationPoint[]> _Points = AccessTools.FieldRefAccess<UIEvaluation, WGEvaluationPoint[]>("evaluationPoint");
+        private static readonly AccessTools.FieldRef<WGEvaluationPoint, WGText> _Description = AccessTools.FieldRefAccess<WGEvaluationPoint, WGText>("description");
     }
 
     /*
