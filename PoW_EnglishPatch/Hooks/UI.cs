@@ -761,7 +761,7 @@ namespace EnglishPatch.Hooks
          */
         //From the game's text area (left edge about 613, right edge about 1311 at 1920x1080): left to the portrait,
         //right to just before the mountains drawn at the end of the box (a negative value moves the right edge right)
-        private const float WiderLeft = 68f;
+        private const float WiderLeft = 38f;
         private const float NarrowerRight = -26f;
 
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Widened = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
