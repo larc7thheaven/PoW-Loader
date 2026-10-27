@@ -1993,9 +1993,11 @@ namespace EnglishPatch.Hooks
 
         /*
          * Unity centers a line by the whole height of the font, room for descenders (g, p, y) included. The labels hardly have any,
-         * so they sat low in their banner: about 7 pixels above the capitals but 4 below the letters at 1080p. They are raised by
-         * a tenth of their size (2 pixels at size 20) so the room above and below is the same. The buttons are updated more than
-         * once, so the position is always taken from the one the game gave the label.
+         * so they sat low in their banner (with Arial about 7 pixels above the capitals but 4 below the letters at 1080p, more with
+         * Bahnschrift). How low depends on the font, so it is measured: the label moves until the band from the baseline to the
+         * top of a capital H, laid out by Unity in this label's font and size, is in the middle of the label box. If that cannot
+         * be measured, it is raised by a tenth of its size (right for Arial). The buttons are updated more than once, so the
+         * position is always taken from the one the game gave the label.
          */
         private static void RaiseLabel(Text text)
         {
@@ -2005,10 +2007,40 @@ namespace EnglishPatch.Hooks
                 origin = rect.anchoredPosition;
                 _LabelOrigin[rect] = origin;
             }
-            rect.anchoredPosition = origin + new Vector2(0f, text.fontSize * LabelRaise);
+            rect.anchoredPosition = origin + new Vector2(0f, CapsCenterOffset(text) ?? text.fontSize * LabelRaise);
+        }
+
+        //How far the capitals of a one line text are below the middle of its box, null when Unity lays out nothing
+        private static float? CapsCenterOffset(Text text)
+        {
+            Rect box = text.rectTransform.rect;
+            TextGenerationSettings settings = text.GetGenerationSettings(box.size);
+            settings.horizontalOverflow = HorizontalWrapMode.Overflow;
+            settings.verticalOverflow = VerticalWrapMode.Overflow;
+            settings.textAnchor = TextAnchor.MiddleCenter;
+            settings.richText = false;
+
+            _CapsGenerator.Populate("H", settings);
+            System.Collections.Generic.IList<UIVertex> verts = _CapsGenerator.verts;
+            if (verts.Count < 4 || text.pixelsPerUnit <= 0f)
+            {
+                return null;
+            }
+
+            float bottom = float.MaxValue, top = float.MinValue;
+            for (int i = 0; i < 4; i++)
+            {
+                bottom = Mathf.Min(bottom, verts[i].position.y);
+                top = Mathf.Max(top, verts[i].position.y);
+            }
+            float capsMiddle = (bottom + top) / 2f / text.pixelsPerUnit;
+
+            //The vertices are relative to the pivot of the box
+            return box.center.y - capsMiddle;
         }
 
         private const float LabelRaise = 0.1f;
+        private static readonly TextGenerator _CapsGenerator = new TextGenerator();
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _LabelOrigin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
 
         //The skill level next to the martial arts icons ("10") was sized for the game's font, its digits are a lot bigger in the
