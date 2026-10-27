@@ -49,6 +49,27 @@ namespace EnglishPatch.Hooks
             }
         }
 
+        private static Font _DialogueFont;
+        private static bool _DialogueFontLoaded;
+
+        //Font for the dialogue text in the talk box, chosen in the config file (see EnglishPatch.DialogueFontName).
+        //The English font when the setting is empty.
+        public static Font DialogueFont
+        {
+            get
+            {
+                if (!_DialogueFontLoaded)
+                {
+                    _DialogueFontLoaded = true;
+                    _DialogueFont = string.IsNullOrEmpty(EnglishPatch.DialogueFontName?.Trim()) ? null : LoadFont(EnglishPatch.DialogueFontName);
+                }
+                return _DialogueFont ?? UIFont;
+            }
+        }
+
+        //Dialogue texts of the talk box, registered by WGMessage_UpdateWidget_Hook
+        public static readonly System.Collections.Generic.HashSet<WGText> DialogueTexts = new System.Collections.Generic.HashSet<WGText>();
+
         //Name Unity gives the game's own font (Kaiu, the Windows font DFKai-SB)
         private const string GameFont = "Kaiu";
 
@@ -598,9 +619,56 @@ namespace EnglishPatch.Hooks
         public static void Postfix(ref WGText __instance, ref Text ___text)
         {
             //Debug.Log("WGText_setText_Hook");
-            ___text.font = TextUtil.UIFont;
-            ___text.fontSize = 20;
+            bool dialogue = TextUtil.DialogueTexts.Contains(__instance);
+            ___text.font = dialogue ? TextUtil.DialogueFont : TextUtil.UIFont;
+            ___text.fontSize = dialogue && EnglishPatch.DialogueFontSize > 0 ? EnglishPatch.DialogueFontSize : 20;
             TextUtil.FitWrapping(___text);
+        }
+    }
+
+    /*
+     * The dialogue text of the talk box can have its own font and size (DialogueFont and DialogueFontSize in the config file).
+     * The message is registered the first time it is shown, from then on WGText_setText_Hook gives it that font. The first
+     * line was already set before it was registered, so it is styled here once more.
+     */
+    [HarmonyPatch(typeof(WGMessage), "UpdateWidget")]
+    public class WGMessage_UpdateWidget_Hook
+    {
+        public static void Postfix(WGText ___message)
+        {
+            if (___message == null || !TextUtil.DialogueTexts.Add(___message))
+            {
+                return;
+            }
+
+            Text text = TextUtil.TextOf(___message);
+            if (text != null)
+            {
+                text.font = TextUtil.DialogueFont;
+                text.fontSize = EnglishPatch.DialogueFontSize > 0 ? EnglishPatch.DialogueFontSize : 20;
+                TextUtil.FitWrapping(text);
+            }
+        }
+    }
+
+    /*
+     * Quest results: rewards were "{item}x{count}" with nothing between them ("Lithospermum Angelica Oilx2"). They are written
+     * "{item} 2 pcs" and "{item} 1 pc" instead. Money ("300 Money") has no count and stays as it is.
+     */
+    [HarmonyPatch(typeof(WGEvaluationReward), "UpdateWidget")]
+    public class WGEvaluationReward_UpdateWidget_Hook
+    {
+        private static readonly System.Text.RegularExpressions.Regex _Count = new System.Text.RegularExpressions.Regex(@"\s*[xX×](\d+)$");
+
+        public static void Postfix(WGText ___content)
+        {
+            Text text = TextUtil.TextOf(___content);
+            if (text == null || string.IsNullOrEmpty(text.text))
+            {
+                return;
+            }
+
+            text.text = _Count.Replace(text.text, m => " " + m.Groups[1].Value + (m.Groups[1].Value == "1" ? " pc" : " pcs"));
         }
     }
 
@@ -637,8 +705,17 @@ namespace EnglishPatch.Hooks
             { "General_Favorability", 0f }, { "SecondaryInterface0808", 0f }, { "SecondaryInterface0803", 0f }, { "SecondaryInterface0804", 0f },
             //Relationship screen: the small "Ability" tag in front of every level
             { "SecondaryInterface0809", 10f },
+            //Refine Medicine: "Amount to Refine", kept on one line
+            { "Refining_Count", 0f },
         };
         private const int MinTitleSize = 14;
+
+        //Labels of _FitWidth whose translation has a size tag ("<size=26>Amount to Refine</size>"), it is removed so they can shrink
+        private static readonly System.Collections.Generic.HashSet<string> _DropSizeTags = new System.Collections.Generic.HashSet<string>
+        {
+            "Refining_Count",
+        };
+        private static readonly System.Text.RegularExpressions.Regex _SizeTags = new System.Text.RegularExpressions.Regex(@"</?size(=\d+)?>");
 
         //Labels a little smaller than the size the game gives them, and by how much
         private static readonly System.Collections.Generic.Dictionary<string, int> _Smaller = new System.Collections.Generic.Dictionary<string, int>
@@ -690,6 +767,11 @@ namespace EnglishPatch.Hooks
 
             if (_FitWidth.TryGetValue(___id, out float margin))
             {
+                //A size tag from the translation would keep the text at that size whatever font size we try
+                if (_DropSizeTags.Contains(___id))
+                {
+                    text.text = _SizeTags.Replace(text.text, "");
+                }
                 TextUtil.ShrinkToWidth(text, MinTitleSize, margin);
             }
 
@@ -1758,6 +1840,8 @@ namespace EnglishPatch.Hooks
             //Debug.Log("WGNurturanceBtn_UpdateButton_Hook");
             Text text = __instance.Btn_Name;
             text.font = TextUtil.UIFont;
+            //Every label of the life menu (main row and all its pages) sits in the middle of its banner
+            text.alignment = TextAnchor.MiddleCenter;
             ShrinkSkillLevel(__instance.SkillLevelText);
 
             //Only Return, Back/Next (previous and next page), Socialize and the character names inside Socialize are fitted to their box, the other buttons keep the default size
