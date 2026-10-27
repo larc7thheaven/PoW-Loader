@@ -2930,22 +2930,16 @@ namespace EnglishPatch.Hooks
 
             foreach (object talent in talents)
             {
-                Text text = TextUtil.TextOf(Traverse.Create(talent).Field("description").GetValue<WGText>());
-                PlaceName(TextUtil.TextOf(Traverse.Create(talent).Field("name").GetValue<WGText>()), text);
+                FitName(TextUtil.TextOf(Traverse.Create(talent).Field("name").GetValue<WGText>()));
 
+                Text text = TextUtil.TextOf(Traverse.Create(talent).Field("description").GetValue<WGText>());
                 if (text == null || string.IsNullOrEmpty(text.text))
                 {
                     continue;
                 }
 
                 RectTransform rect = text.rectTransform;
-                if (!_Origin.TryGetValue(rect, out Vector2 origin))
-                {
-                    origin = rect.anchoredPosition;
-                    _Origin[rect] = origin;
-                }
-                rect.anchoredPosition = origin;
-
+                ResetPosition(text);
                 RectTransform box = BoxOf(text);
                 TextUtil.ShrinkToHeight(text, MinSize);
                 float room = WorldHeight(box) - 2f * Mathf.Abs(box.TransformVector(new Vector3(0f, BoxPadding, 0f)).y);
@@ -2957,9 +2951,46 @@ namespace EnglishPatch.Hooks
                 //Middle of its own rect first, then the drawn letters are centered in the box
                 text.alignment = TextAnchor.MiddleLeft;
                 TextUtil.Justify(text);
-                LogOnce(text, box);
-                CenterInBox(text, box);
             }
+
+            Place(talents);
+            //The tab slides in and its layout is only finished in the next frames, until then the places measured can be off
+            TraitPlacer placer = __instance.GetComponent<TraitPlacer>() ?? __instance.gameObject.AddComponent<TraitPlacer>();
+            placer.Restart(talents);
+        }
+
+        //Puts the names and descriptions where they belong, from where the game put them (can be done again at any time)
+        internal static void Place(System.Array talents)
+        {
+            foreach (object talent in talents)
+            {
+                Text text = TextUtil.TextOf(Traverse.Create(talent).Field("description").GetValue<WGText>());
+                Text name = TextUtil.TextOf(Traverse.Create(talent).Field("name").GetValue<WGText>());
+                if (name != null && name.isActiveAndEnabled && !string.IsNullOrEmpty(name.text))
+                {
+                    ResetPosition(name);
+                    PlaceName(name, text);
+                }
+                if (text != null && text.isActiveAndEnabled && !string.IsNullOrEmpty(text.text))
+                {
+                    ResetPosition(text);
+                    RectTransform box = BoxOf(text);
+                    LogOnce(text, box);
+                    CenterInBox(text, box);
+                }
+            }
+        }
+
+        //Back where the prefab has it, the items are reused for every character
+        private static void ResetPosition(Text text)
+        {
+            RectTransform rect = text.rectTransform;
+            if (!_Origin.TryGetValue(rect, out Vector2 origin))
+            {
+                origin = rect.anchoredPosition;
+                _Origin[rect] = origin;
+            }
+            rect.anchoredPosition = origin;
         }
 
         /*
@@ -2969,20 +3000,12 @@ namespace EnglishPatch.Hooks
          */
         private static readonly System.Collections.Generic.Dictionary<Text, TextAnchor> _Alignment = new System.Collections.Generic.Dictionary<Text, TextAnchor>();
 
-        private static void PlaceName(Text name, Text description)
+        private static void FitName(Text name)
         {
             if (name == null || string.IsNullOrEmpty(name.text))
             {
                 return;
             }
-
-            RectTransform rect = name.rectTransform;
-            if (!_Origin.TryGetValue(rect, out Vector2 origin))
-            {
-                origin = rect.anchoredPosition;
-                _Origin[rect] = origin;
-            }
-            rect.anchoredPosition = origin;
 
             if (!_Alignment.TryGetValue(name, out TextAnchor alignment))
             {
@@ -2997,7 +3020,11 @@ namespace EnglishPatch.Hooks
                 default: name.alignment = TextAnchor.MiddleRight; break;
             }
             TextUtil.ShrinkToWidth(name, 12);
+        }
 
+        private static void PlaceName(Text name, Text description)
+        {
+            RectTransform rect = name.rectTransform;
             Text title = TitleOf(name, description);
             LogOnce(name, title == null ? null : title.rectTransform);
             //A group placing both would move the title along with the name
@@ -3254,6 +3281,32 @@ namespace EnglishPatch.Hooks
             float boxMiddle = (corners[0].y + corners[1].y) / 2f;
 
             return rect.parent.InverseTransformVector(new Vector3(0f, boxMiddle - inkMiddle, 0f)).y;
+        }
+    }
+
+    //Places the trait texts again every frame for a moment after the item is updated, while the Status tab slides in
+    public class TraitPlacer : MonoBehaviour
+    {
+        private const float Duration = 1f;
+
+        private System.Array _Talents;
+        private float _Until;
+
+        public void Restart(System.Array talents)
+        {
+            _Talents = talents;
+            _Until = Time.unscaledTime + Duration;
+            enabled = true;
+        }
+
+        private void LateUpdate()
+        {
+            if (_Talents == null || Time.unscaledTime > _Until)
+            {
+                enabled = false;
+                return;
+            }
+            WGTalentItem_UpdateWidget_Hook.Place(_Talents);
         }
     }
 
