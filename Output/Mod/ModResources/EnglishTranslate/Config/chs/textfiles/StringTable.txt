@@ -1067,7 +1067,7 @@ SecondaryInterface1106	养成介面效果加乘提示	<size=20>Martial arts trai
 SecondaryInterface1107	养成介面效果加乘提示	<size=20>Four Arts effect bonus!</size>
 SecondaryInterface1108	养成介面效果加乘提示	<size=20>Errands bonus!</size>
 SecondaryInterface1109	养成介面效果加乘提示	<size=20>Number of remaining herbal bath buffs: {0}</size>
-SecondaryInterface1110	养成介面效果加乘提示	<size=20>Workout, martial arts training, four arts, outing and, errands effects are enhanced!</size>
+SecondaryInterface1110	养成介面效果加乘提示	<size=20>Workout, martial arts training, four arts, outing and errands effects are enhanced!</size>
 SecondaryInterface1111	养成介面	(Total value: {0})
 SecondaryInterface2209	阅读介面文本	Your energy is too low to understand the content of the manual.
 ta02004001	互动介面	Enter
