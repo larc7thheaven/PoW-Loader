@@ -1689,6 +1689,7 @@ namespace EnglishPatch.Hooks
             //Debug.Log("WGNurturanceBtn_UpdateButton_Hook");
             Text text = __instance.Btn_Name;
             text.font = TextUtil.UIFont;
+            ShrinkSkillLevel(__instance.SkillLevelText);
 
             //Only Return, Back/Next (previous and next page), Socialize and the character names inside Socialize are fitted to their box, the other buttons keep the default size
             Nurturance nurturance = __instance.tree?.Value;
@@ -1720,6 +1721,27 @@ namespace EnglishPatch.Hooks
 
             TextUtil.ShrinkToBox(text, MinSize);
         }
+
+        //The skill level next to the martial arts icons ("10") was sized for the game's font, its digits are a lot bigger in the
+        //English font the life screen now uses (see UIForm_Show_LifeFont_Hook). Buttons are updated more than once, so the size
+        //is always taken from the one the game gave the label.
+        private static void ShrinkSkillLevel(Text level)
+        {
+            if (level == null)
+            {
+                return;
+            }
+
+            if (!_LevelSize.TryGetValue(level, out int size))
+            {
+                size = level.fontSize;
+                _LevelSize[level] = size;
+            }
+            level.fontSize = Mathf.RoundToInt(size * SkillLevelScale);
+        }
+
+        private const float SkillLevelScale = 0.8f;
+        private static readonly System.Collections.Generic.Dictionary<Text, int> _LevelSize = new System.Collections.Generic.Dictionary<Text, int>();
 
         private const int MinSize = 10;
         private const int SkillLines = 2;
