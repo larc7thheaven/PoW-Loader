@@ -692,10 +692,20 @@ namespace EnglishPatch.Hooks
                 return;
             }
             TextUtil.Prune(_Widened);
-            //Left edge WiderLeft further left, right edge NarrowerRight further left
+            /*
+             * Left edge WiderLeft further left, right edge NarrowerRight further left. The game sets the area's position
+             * itself, so moving it did not last: the area is made wider and its pivot (the point the position is for)
+             * moved, so at the position the game gives, the edges land where wanted.
+             */
             float wider = WiderLeft - NarrowerRight;
+            float width = rect.rect.width;
+            if (width + wider <= 0f)
+            {
+                return;
+            }
+            float pivot = (rect.pivot.x * width + WiderLeft) / (width + wider);
             rect.sizeDelta += new Vector2(wider, 0f);
-            rect.anchoredPosition -= new Vector2((NarrowerRight + wider * (1f - rect.pivot.x)) * rect.localScale.x, 0f);
+            rect.pivot = new Vector2(pivot, rect.pivot.y);
             _Widened[rect] = rect.sizeDelta;
         }
 
@@ -706,9 +716,10 @@ namespace EnglishPatch.Hooks
          * text area huge (lines no longer wrapped and ran off the screen). The size set here is kept, so a message that
          * finds that size again is not widened twice, and nothing adds up.
          */
-        private const float WiderLeft = 147f;
-        //The right margin, a little more room before the arrow at the end of the box
-        private const float NarrowerRight = 52f;
+        //From the game's text area (left edge about 613, right edge about 1311 at 1920x1080): left to the portrait,
+        //right to just before the mountains drawn at the end of the box (a negative value moves the right edge right)
+        private const float WiderLeft = 68f;
+        private const float NarrowerRight = -26f;
 
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Widened = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
 
