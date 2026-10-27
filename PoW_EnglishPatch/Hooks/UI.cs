@@ -191,6 +191,17 @@ namespace EnglishPatch.Hooks
             }
         }
 
+        /*
+         * Settings to measure a text as it is drawn, but keeping every line: a text set to cut lines that do not fit gives
+         * nothing for a line a little taller than its area (Arial 20 in an area 20 high), so it could not be measured.
+         */
+        public static TextGenerationSettings Measuring(Text text, Vector2 size)
+        {
+            TextGenerationSettings settings = text.GetGenerationSettings(size);
+            settings.verticalOverflow = VerticalWrapMode.Overflow;
+            return settings;
+        }
+
         private static readonly AccessTools.FieldRef<WGStringTable, string> _StringTableId = AccessTools.FieldRefAccess<WGStringTable, string>("id");
 
         //The StringTable id a label of the prefab shows (SecondaryInterface0107...)
@@ -617,9 +628,20 @@ namespace EnglishPatch.Hooks
             text.verticalOverflow = VerticalWrapMode.Truncate;
         }
 
-        //Short texts stay on one line, longer ones wrap and may grow downwards
+        //Height of one line of text for its font size, Arial and most English fonts are about this tall
+        private const float LineHeight = 1.25f;
+
+        /*
+         * Short texts stay on one line, longer ones wrap and may grow downwards.
+         * An area less than one line high (sized for the game's font) set to cut lines that do not fit showed nothing at
+         * all with Arial ("Turn", the skill key numbers), so such a text may go past its area.
+         */
         public static void FitWrapping(Text text)
         {
+            if (text.verticalOverflow == VerticalWrapMode.Truncate && text.rectTransform.rect.height < text.fontSize * LineHeight)
+            {
+                text.verticalOverflow = VerticalWrapMode.Overflow;
+            }
             if (text.text.Length <= 20)
             {
                 text.horizontalOverflow = HorizontalWrapMode.Overflow;
@@ -658,8 +680,29 @@ namespace EnglishPatch.Hooks
     [HarmonyPatch(typeof(WGMessage), "UpdateWidget")]
     public class WGMessage_UpdateWidget_Hook
     {
+        /*
+         * The text started far right of the left end of the talk box, with a wide empty strip before it. Its left edge
+         * moves left by WiderLeft, the right edge stays, so the lines use that room.
+         */
+        private const float WiderLeft = 77f;
+
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, float> _Left = new System.Collections.Generic.Dictionary<RectTransform, float>();
+
         public static void Postfix(WGText ___message)
         {
+            Text message = TextUtil.TextOf(___message);
+            if (message != null)
+            {
+                RectTransform rect = message.rectTransform;
+                if (!_Left.TryGetValue(rect, out float left))
+                {
+                    TextUtil.Prune(_Left);
+                    left = rect.offsetMin.x;
+                    _Left[rect] = left;
+                }
+                rect.offsetMin = new Vector2(left - WiderLeft, rect.offsetMin.y);
+            }
+
             if (___message == null || !TextUtil.DialogueTexts.Add(___message))
             {
                 return;
@@ -906,6 +949,7 @@ namespace EnglishPatch.Hooks
                 TextUtil.ShrinkToWidth(text, MinTitleSize, margin);
             }
 
+            WgBattleRound_UpdateRound_Hook.LabelChanged(text);
             SaveLoadTab.Fit(text, ___id);
             PawnshopTabs.Fit(text);
             FitMedicineTab(text, ___id);
@@ -2538,17 +2582,37 @@ namespace EnglishPatch.Hooks
                 ___text_current.font = font;
             }
 
-            Replacer.Run(__instance, () =>
+            Schedule(__instance, ___text_current, ___text_win_lose, ___tipObj);
+        }
+
+        private static void Schedule(WgBattleRound round, Text current, Text winLose, GameObject tip)
+        {
+            Replacer.Run(round, () =>
             {
-                if (___text_current != null)
+                if (current != null)
                 {
-                    TurnFirst(__instance, ___text_current, ___text_win_lose, ___tipObj);
+                    TurnFirst(round, current, winLose, tip);
                 }
-                if (___text_win_lose != null)
+                if (winLose != null)
                 {
-                    CenterConditions(___text_win_lose);
+                    CenterConditions(winLose);
                 }
             });
+        }
+
+        private static readonly AccessTools.FieldRef<WgBattleRound, Text> _Current = AccessTools.FieldRefAccess<WgBattleRound, Text>("text_current");
+        private static readonly AccessTools.FieldRef<WgBattleRound, Text> _WinLose = AccessTools.FieldRefAccess<WgBattleRound, Text>("text_win_lose");
+        private static readonly AccessTools.FieldRef<WgBattleRound, GameObject> _Tip = AccessTools.FieldRefAccess<WgBattleRound, GameObject>("tipObj");
+
+        //The round label turns from 回合 into "Turn" after the round is set up: placed again then (WGStringTable_UpdateString_Hook)
+        internal static void LabelChanged(Component label)
+        {
+            WgBattleRound round = label.GetComponentInParent<WgBattleRound>();
+            if (round != null)
+            {
+                _Label.Remove(round);
+                Schedule(round, _Current(round), _WinLose(round), _Tip(round));
+            }
         }
 
         /*
@@ -2640,6 +2704,10 @@ namespace EnglishPatch.Hooks
                 return;
             }
             LayoutLog.Once("turn label " + round.GetInstanceID(), "Turn label: " + LayoutLog.Describe(label) + " | number: " + LayoutLog.Describe(number));
+
+            //"Turn" in the game's font is a little taller than its area (sized for 回合), it was cut and not shown
+            label.verticalOverflow = VerticalWrapMode.Overflow;
+            label.horizontalOverflow = HorizontalWrapMode.Overflow;
 
             //The number as big as "Turn", allowed past its area which is sized for the smaller number
             number.resizeTextForBestFit = false;
@@ -2799,7 +2867,8 @@ namespace EnglishPatch.Hooks
         {
             foreach (Text other in round.GetComponentsInChildren<Text>())
             {
-                if (other != number && other.text != null && other.text.Trim().Equals("Turn", System.StringComparison.OrdinalIgnoreCase))
+                string written = other.text == null ? "" : other.text.Trim();
+                if (other != number && (written.Equals("Turn", System.StringComparison.OrdinalIgnoreCase) || written == "回合"))
                 {
                     return other;
                 }
@@ -2853,7 +2922,7 @@ namespace EnglishPatch.Hooks
         private static Rect? Ink(Text text)
         {
             RectTransform rect = text.rectTransform;
-            _Generator.Populate(text.text, text.GetGenerationSettings(rect.rect.size));
+            _Generator.Populate(text.text, TextUtil.Measuring(text, rect.rect.size));
             System.Collections.Generic.IList<UIVertex> verts = _Generator.verts;
             if (verts.Count == 0 || text.pixelsPerUnit <= 0f)
             {
@@ -2874,7 +2943,7 @@ namespace EnglishPatch.Hooks
         private static float? Baseline(Text text)
         {
             RectTransform rect = text.rectTransform;
-            TextGenerationSettings settings = text.GetGenerationSettings(rect.rect.size);
+            TextGenerationSettings settings = TextUtil.Measuring(text, rect.rect.size);
             settings.richText = false;
             _Generator.Populate("H", settings);
             System.Collections.Generic.IList<UIVertex> verts = _Generator.verts;
@@ -3617,7 +3686,7 @@ namespace EnglishPatch.Hooks
         private static float? VisualMiddle(Text text)
         {
             RectTransform rect = text.rectTransform;
-            TextGenerationSettings settings = text.GetGenerationSettings(rect.rect.size);
+            TextGenerationSettings settings = TextUtil.Measuring(text, rect.rect.size);
             settings.horizontalOverflow = HorizontalWrapMode.Overflow;
             settings.verticalOverflow = VerticalWrapMode.Overflow;
             settings.richText = false;
@@ -3768,7 +3837,7 @@ namespace EnglishPatch.Hooks
         internal static float? ShiftToCenter(Text text, RectTransform box)
         {
             RectTransform rect = text.rectTransform;
-            _Generator.Populate(text.text, text.GetGenerationSettings(rect.rect.size));
+            _Generator.Populate(text.text, TextUtil.Measuring(text, rect.rect.size));
             System.Collections.Generic.IList<UIVertex> verts = _Generator.verts;
             if (verts.Count == 0 || text.pixelsPerUnit <= 0f || rect.parent == null)
             {
@@ -4155,7 +4224,7 @@ namespace EnglishPatch.Hooks
             }
 
             //Where an "H" starts and ends below the top of its line
-            TextGenerationSettings settings = text.GetGenerationSettings(rect.rect.size);
+            TextGenerationSettings settings = TextUtil.Measuring(text, rect.rect.size);
             settings.richText = false;
             _Generator.Populate("H", settings);
             if (_Generator.verts.Count < 4 || _Generator.lineCount < 1)
@@ -4171,7 +4240,7 @@ namespace EnglishPatch.Hooks
             float lineTop = _Generator.lines[0].topY;
             float capBelowTop = lineTop - capTop, baseBelowTop = lineTop - baseline;
 
-            _Generator.Populate(text.text, text.GetGenerationSettings(rect.rect.size));
+            _Generator.Populate(text.text, TextUtil.Measuring(text, rect.rect.size));
             int count = _Generator.lineCount;
             if (count < 1)
             {
@@ -4332,6 +4401,10 @@ namespace EnglishPatch.Hooks
                     continue;
                 }
 
+                //A line of some fonts is a little taller than the number's area, it was cut and the number not shown
+                text.verticalOverflow = VerticalWrapMode.Overflow;
+                text.horizontalOverflow = HorizontalWrapMode.Overflow;
+
                 RectTransform rect = text.rectTransform;
                 if (!_Origin.TryGetValue(rect, out Vector2 origin))
                 {
@@ -4424,7 +4497,7 @@ namespace EnglishPatch.Hooks
         private static Vector3? InkCenter(Text text)
         {
             RectTransform rect = text.rectTransform;
-            _Generator.Populate(text.text, text.GetGenerationSettings(rect.rect.size));
+            _Generator.Populate(text.text, TextUtil.Measuring(text, rect.rect.size));
             System.Collections.Generic.IList<UIVertex> verts = _Generator.verts;
             if (verts.Count == 0 || text.pixelsPerUnit <= 0f)
             {
