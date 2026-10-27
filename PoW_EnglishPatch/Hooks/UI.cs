@@ -1881,6 +1881,7 @@ namespace EnglishPatch.Hooks
             if (nurturance != null && (nurturance.Fuction == NurturanceFunction.Skill || nurturance.Fuction == NurturanceFunction.Mantra))
             {
                 TextUtil.ShrinkToLines(text, SkillLines, SkillMinSize);
+                RaiseLabel(text);
                 return;
             }
 
@@ -1889,18 +1890,44 @@ namespace EnglishPatch.Hooks
                 TextUtil.RestoreBoxFit(text);
                 text.horizontalOverflow = HorizontalWrapMode.Wrap;
                 text.verticalOverflow = VerticalWrapMode.Overflow;
+                RaiseLabel(text);
                 return;
             }
 
             //Return, Back and Next have a tall narrow box made for Chinese written top to bottom, English is stacked letter by letter there
             Rect rect = text.rectTransform.rect;
-            if (rect.height > rect.width * 1.5f && !string.IsNullOrEmpty(text.text))
+            bool stacked = rect.height > rect.width * 1.5f;
+            if (stacked && !string.IsNullOrEmpty(text.text))
             {
                 text.text = string.Join("\n", System.Array.ConvertAll(text.text.Replace(" ", "").ToCharArray(), c => c.ToString()));
             }
 
             TextUtil.ShrinkToBox(text, MinSize);
+            if (!stacked)
+            {
+                RaiseLabel(text);
+            }
         }
+
+        /*
+         * Unity centers a line by the whole height of the font, room for descenders (g, p, y) included. The labels hardly have any,
+         * so they sat low in their banner: about 7 pixels above the capitals but 4 below the letters at 1080p. They are raised by
+         * a tenth of their size (2 pixels at size 20) so the room above and below is the same. The buttons are updated more than
+         * once, so the position is always taken from the one the game gave the label.
+         */
+        private static void RaiseLabel(Text text)
+        {
+            RectTransform rect = text.rectTransform;
+            if (!_LabelOrigin.TryGetValue(rect, out Vector2 origin))
+            {
+                origin = rect.anchoredPosition;
+                _LabelOrigin[rect] = origin;
+            }
+            rect.anchoredPosition = origin + new Vector2(0f, text.fontSize * LabelRaise);
+        }
+
+        private const float LabelRaise = 0.1f;
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _LabelOrigin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
 
         //The skill level next to the martial arts icons ("10") was sized for the game's font, its digits are a lot bigger in the
         //English font the life screen now uses (see UIForm_Show_LifeFont_Hook). Buttons are updated more than once, so the size
