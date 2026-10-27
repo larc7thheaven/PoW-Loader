@@ -51,6 +51,26 @@ namespace EnglishPatch.Hooks
         }
     }
 
+    /*
+     * "Suitable for:" on gear (blacksmith, shops, inventory) lists the characters joined with the Chinese list comma '、'
+     * ("Suitable for:Zhao Zilong、Xiao Qianling"). They are joined with ", " and a space follows the colon.
+     */
+    [HarmonyPatch(typeof(Heluo.UI.CtrlFrom), "GetPropsConditionDescripition")]
+    public class CtrlFrom_GetPropsConditionDescripition_Hook
+    {
+        private static readonly System.Text.RegularExpressions.Regex _Colon = new System.Text.RegularExpressions.Regex(@"^([^:：]*)[:：]\s*");
+
+        public static void Postfix(ref string __result)
+        {
+            if (string.IsNullOrEmpty(__result) || __result.IndexOf('、') < 0 && __result.IndexOf(':') < 0 && __result.IndexOf('：') < 0)
+            {
+                return;
+            }
+            string list = __result.Replace("、", ", ").TrimEnd(' ', ',');
+            __result = _Colon.Replace(list, "$1: ", 1);
+        }
+    }
+
     //A Mantra effect is "level, text" and the game splits it on every ',', so the text is cut at its first normal comma.
     //Keep the first comma as the separator and turn the rest into '，' (shown as ", " by the hook above).
     [HarmonyPatch]
