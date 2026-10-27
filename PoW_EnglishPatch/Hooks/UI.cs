@@ -3393,6 +3393,127 @@ namespace EnglishPatch.Hooks
             {
                 text.fontSize--;
             }
+
+            UIForm form = TextUtil.OwningForm(text);
+            Replacer.Run(form, () => SameGap(form));
+        }
+
+        /*
+         * The names are centered in their room, so a short name ended far from its icon ("Cloud Save", "Auto Save").
+         * Each name is moved so the gap between its icon and its drawn letters is the gap "Local storage" has.
+         */
+        private const string LocalStorage = "SecondaryInterface2117";
+
+        private static readonly AccessTools.FieldRef<WGStringTable, string> _Id = AccessTools.FieldRefAccess<WGStringTable, string>("id");
+
+        private static void SameGap(UIForm form)
+        {
+            if (form == null || !form.isActiveAndEnabled)
+            {
+                return;
+            }
+            Text local = null;
+            var others = new System.Collections.Generic.List<Text>();
+            foreach (WGStringTable label in form.GetComponentsInChildren<WGStringTable>())
+            {
+                string id = _Id(label);
+                Text text = label.GetComponent<Text>();
+                if (id == null || text == null || !_Tabs.TryGetValue(id, out Vector2 tab) || !_Origin.TryGetValue(text.rectTransform, out Vector2 origin))
+                {
+                    continue;
+                }
+                //From where Fit put it, so placing again does not add up
+                text.rectTransform.anchoredPosition = origin + new Vector2(tab.x, 0f);
+                if (id == LocalStorage)
+                {
+                    local = text;
+                }
+                else
+                {
+                    others.Add(text);
+                }
+            }
+
+            float? gap = local != null ? GapToIcon(local) : null;
+            if (gap == null)
+            {
+                return;
+            }
+            foreach (Text text in others)
+            {
+                float? own = GapToIcon(text);
+                RectTransform rect = text.rectTransform;
+                //A gap that cannot be right (no icon found, or one far away) leaves the name where Fit put it
+                if (own == null || rect.parent == null || Mathf.Abs(own.Value - gap.Value) > text.fontSize * 4f)
+                {
+                    continue;
+                }
+                rect.anchoredPosition += new Vector2(rect.parent.InverseTransformVector(new Vector3(gap.Value - own.Value, 0f, 0f)).x, 0f);
+            }
+        }
+
+        private static readonly TextGenerator _Generator = new TextGenerator();
+
+        //World distance from the right edge of the tab's icon to the left of the name's drawn letters
+        private static float? GapToIcon(Text text)
+        {
+            RectTransform rect = text.rectTransform;
+            _Generator.Populate(text.text, TextUtil.Measuring(text, rect.rect.size));
+            if (_Generator.vertexCount == 0 || text.pixelsPerUnit <= 0f)
+            {
+                return null;
+            }
+            float inkLeft = float.MaxValue;
+            foreach (UIVertex vert in _Generator.verts)
+            {
+                inkLeft = Mathf.Min(inkLeft, vert.position.x);
+            }
+            inkLeft = rect.TransformPoint(new Vector3(inkLeft / text.pixelsPerUnit, 0f, 0f)).x;
+
+            Image icon = IconOf(text, inkLeft);
+            if (icon == null)
+            {
+                return null;
+            }
+            Vector3[] corners = new Vector3[4];
+            icon.rectTransform.GetWorldCorners(corners);
+            return inkLeft - corners[2].x;
+        }
+
+        //The small image left of the name on the same height: among the name's neighbours and its parent's neighbours
+        private static Image IconOf(Text text, float inkLeft)
+        {
+            Vector3[] own = new Vector3[4];
+            text.rectTransform.GetWorldCorners(own);
+            float middle = (own[0].y + own[1].y) / 2f;
+            float size = Mathf.Abs(text.rectTransform.TransformVector(new Vector3(0f, text.fontSize, 0f)).y) * 4f;
+            Vector3[] corners = new Vector3[4];
+            Image best = null;
+            float bestRight = float.MinValue;
+            Transform parent = text.transform.parent;
+            for (int level = 0; level < 2 && parent != null; level++, parent = parent.parent)
+            {
+                foreach (Image image in parent.GetComponentsInChildren<Image>())
+                {
+                    image.rectTransform.GetWorldCorners(corners);
+                    float width = corners[2].x - corners[0].x, height = corners[1].y - corners[0].y;
+                    float centerX = (corners[0].x + corners[2].x) / 2f;
+                    if (width > size || height > size || corners[0].y > middle || corners[1].y < middle || centerX >= inkLeft)
+                    {
+                        continue;
+                    }
+                    if (corners[2].x > bestRight)
+                    {
+                        best = image;
+                        bestRight = corners[2].x;
+                    }
+                }
+                if (best != null)
+                {
+                    return best;
+                }
+            }
+            return null;
         }
     }
 
