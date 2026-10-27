@@ -706,9 +706,9 @@ namespace EnglishPatch.Hooks
          * text area huge (lines no longer wrapped and ran off the screen). The size set here is kept, so a message that
          * finds that size again is not widened twice, and nothing adds up.
          */
-        private const float WiderLeft = 137f;
+        private const float WiderLeft = 147f;
         //The right margin, a little more room before the arrow at the end of the box
-        private const float NarrowerRight = 20f;
+        private const float NarrowerRight = 52f;
 
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Widened = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
 
