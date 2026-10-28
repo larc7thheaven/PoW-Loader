@@ -1005,11 +1005,17 @@ namespace EnglishPatch.Hooks
          */
         private const float TwoLineSpacing = 0.75f;
         private static readonly System.Text.RegularExpressions.Regex _Tags = new System.Text.RegularExpressions.Regex("<[^>]*>");
+        private static readonly System.Text.RegularExpressions.Regex _Spaces = new System.Text.RegularExpressions.Regex(@"\s+");
 
         private static void TightTwoLines(Text text)
         {
-            string plain = _Tags.Replace(text.text ?? "", " ");
-            plain = System.Text.RegularExpressions.Regex.Replace(plain, @"\s+", " ").Trim();
+            //Every label of the game comes through here: only the two headings go on to the regular expressions
+            string raw = text.text;
+            if (raw == null || (raw.IndexOf("Internal", System.StringComparison.OrdinalIgnoreCase) < 0 && raw.IndexOf("Special", System.StringComparison.OrdinalIgnoreCase) < 0))
+            {
+                return;
+            }
+            string plain = _Spaces.Replace(_Tags.Replace(raw, " "), " ").Trim();
             if (plain.Equals("Internal Arts", System.StringComparison.OrdinalIgnoreCase) || plain.Equals("Special Skill", System.StringComparison.OrdinalIgnoreCase))
             {
                 text.lineSpacing = TwoLineSpacing;
@@ -4829,6 +4835,7 @@ namespace EnglishPatch.Hooks
          * name and value together, are put in the middle of the tip. Rows with a name and a value ("Energy -12") stay.
          */
         private const float DamageRaise = 4f;
+        private static readonly System.Text.RegularExpressions.Regex _Italic = new System.Text.RegularExpressions.Regex("</?i>", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         //Every text of the training tip is drawn in this size (see TrainingSize)
         private const int TitleSize = 22;
 
@@ -4885,7 +4892,7 @@ namespace EnglishPatch.Hooks
                 value.font = title.font;
                 if (value.text.IndexOf("<i>", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 {
-                    value.text = System.Text.RegularExpressions.Regex.Replace(value.text, "</?i>", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    value.text = _Italic.Replace(value.text, "");
                 }
                 /*
                  * On the name's line: same font, size and style as the name, so given the same vertical box (anchors,
