@@ -3580,20 +3580,37 @@ namespace EnglishPatch.Hooks
             {
                 return;
             }
-            Vector3[] box = new Vector3[4];
-            bubble.GetWorldCorners(box);
-            Vector3[] own = new Vector3[4];
-            rect.GetWorldCorners(own);
-            float margin = Mathf.Abs(rect.TransformVector(new Vector3(Margin, 0f, 0f)).x);
-            float left = rect.parent.InverseTransformVector(new Vector3(box[0].x + margin - own[0].x, 0f, 0f)).x;
-            float right = rect.parent.InverseTransformVector(new Vector3(box[2].x - margin - own[2].x, 0f, 0f)).x;
-            //A bubble found far bigger than the text is not its bubble
-            if (Mathf.Abs(left) > rect.rect.width || Mathf.Abs(right) > rect.rect.width)
+            /*
+             * Edges compared in the space of the text's parent, where the offsets are: the bubble can be drawn mirrored (its
+             * tail on the other side), then its world corners are swapped and left and right would be mixed up.
+             */
+            Transform space = rect.parent;
+            EdgesIn(space, bubble, out float boxLeft, out float boxRight);
+            EdgesIn(space, rect, out float textLeft, out float textRight);
+            float left = boxLeft + Margin - textLeft;
+            float right = boxRight - Margin - textRight;
+            //Only ever wider, and a bubble far bigger than the text is not its bubble
+            if (left > 0f || right < 0f || -left > rect.rect.width || right > rect.rect.width)
             {
                 return;
             }
             rect.offsetMin = new Vector2(original[0].x + left, original[0].y);
             rect.offsetMax = new Vector2(original[1].x + right, original[1].y);
+        }
+
+        //Left and right edges of a rect in the given space
+        private static void EdgesIn(Transform space, RectTransform rect, out float left, out float right)
+        {
+            Vector3[] corners = new Vector3[4];
+            rect.GetWorldCorners(corners);
+            left = float.MaxValue;
+            right = float.MinValue;
+            foreach (Vector3 corner in corners)
+            {
+                float x = space.InverseTransformPoint(corner).x;
+                left = Mathf.Min(left, x);
+                right = Mathf.Max(right, x);
+            }
         }
     }
 
