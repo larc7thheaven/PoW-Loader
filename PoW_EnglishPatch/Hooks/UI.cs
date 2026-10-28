@@ -3581,6 +3581,8 @@ namespace EnglishPatch.Hooks
         private const int MinSize = 14;
         //The text ended 35 from the bubble's right edge and started 22 from its left edge (1920x1080)
         private const float RightExtend = 13f;
+        //Then the lines started 9 from the bubble's left edge and ended 23 from its right edge
+        private const float ShiftRight = 7f;
 
         //The text area of the prefab (left and right edges), the bubble is shown again and again
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2[]> _Original = new System.Collections.Generic.Dictionary<RectTransform, Vector2[]>();
@@ -3607,9 +3609,9 @@ namespace EnglishPatch.Hooks
                 original = new[] { rect.offsetMin, rect.offsetMax };
                 _Original[rect] = original;
             }
-            //The game's left edge, the right edge moved right so both margins in the bubble are the same
-            rect.offsetMin = original[0];
-            rect.offsetMax = new Vector2(original[1].x + RightExtend, original[1].y);
+            //Wider to the right, and the whole area moved right so both margins in the bubble are the same
+            rect.offsetMin = new Vector2(original[0].x + ShiftRight, original[0].y);
+            rect.offsetMax = new Vector2(original[1].x + RightExtend + ShiftRight, original[1].y);
         }
     }
 
