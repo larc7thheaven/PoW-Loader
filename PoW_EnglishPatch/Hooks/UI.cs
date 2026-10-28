@@ -4870,6 +4870,36 @@ namespace EnglishPatch.Hooks
          * rows moved up or down so the gaps between their drawn letters (capitals' top to baseline) are all the same, the
          * first and last rows staying where they are. The level row sat lower and the damage row higher than the others.
          */
+        //The Socialize tip keeps the size 20 the English texts have elsewhere
+        private const int SocialSize = 20;
+        private static readonly System.Collections.Generic.Dictionary<Text, string> _GameText = new System.Collections.Generic.Dictionary<Text, string>();
+
+        //A Socialize tip row from the game's text: size 20, from the left margin, wrapped lines justified, row as high as them
+        private static void SocialRow(WGTitleValue row)
+        {
+            Text title = row.Title;
+            if (title == null || !_GameText.TryGetValue(title, out string game) || string.IsNullOrEmpty(game))
+            {
+                return;
+            }
+            title.fontSize = SocialSize;
+            title.alignment = (TextAnchor)((int)title.alignment / 3 * 3);
+            title.horizontalOverflow = HorizontalWrapMode.Wrap;
+            title.verticalOverflow = VerticalWrapMode.Overflow;
+            title.text = _AnySize.Replace(game, "").Replace('\u00A0', ' ');
+            _Generator.Populate(title.text, TextUtil.Measuring(title, title.rectTransform.rect.size));
+            int lines = _Generator.lineCount;
+            TextUtil.Justify(title);
+            if (lines > 1)
+            {
+                row.SetHihgt(Mathf.CeilToInt(title.preferredHeight + TitlePadding));
+            }
+            if (row.Value != null)
+            {
+                row.Value.fontSize = SocialSize;
+            }
+        }
+
         private static void PlaceTrainingTip(WGTip tip)
         {
             if (tip == null || !tip.isActiveAndEnabled)
@@ -4900,12 +4930,7 @@ namespace EnglishPatch.Hooks
                 }
                 if (social)
                 {
-                    Text title = row.Title;
-                    if (title != null && !string.IsNullOrEmpty(title.text))
-                    {
-                        title.alignment = (TextAnchor)((int)title.alignment / 3 * 3);
-                        TextUtil.Justify(title);
-                    }
+                    SocialRow(row);
                 }
                 else if (_RowType.TryGetValue(row, out WGTip.TipType type))
                 {
@@ -5133,6 +5158,10 @@ namespace EnglishPatch.Hooks
         {
             if (titlevalue != null && TextUtil.OwningForm(titlevalue) is UINurturance)
             {
+                if (titlevalue.Title != null)
+                {
+                    _GameText[titlevalue.Title] = titlevalue.Title.text;
+                }
                 TrainingSize(titlevalue.Title);
                 TrainingSize(titlevalue.Value);
             }
