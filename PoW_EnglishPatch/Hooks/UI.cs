@@ -4807,14 +4807,15 @@ namespace EnglishPatch.Hooks
                     value.text = TextUtil.ScaleSizeTags(value.text, (float)title.fontSize / value.fontSize);
                     value.fontSize = title.fontSize;
                 }
-                //The number was slanted (italic), it is upright like the name
+                //The number was slanted (italic), it is upright like the name, and in the same font
                 value.fontStyle = title.fontStyle;
+                value.font = title.font;
                 if (value.text.IndexOf("<i>", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     value.text = System.Text.RegularExpressions.Regex.Replace(value.text, "</?i>", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                 }
                 if (value.rectTransform.parent != null
-                    && Baseline(title, out float titleBase) && Baseline(value, out float valueBase)
+                    && LineTop(title, out float titleBase) && LineTop(value, out float valueBase)
                     && Mathf.Abs(titleBase - valueBase) < Mathf.Abs(title.rectTransform.TransformVector(new Vector3(0f, title.fontSize, 0f)).y))
                 {
                     value.rectTransform.anchoredPosition += new Vector2(0f, value.rectTransform.parent.InverseTransformVector(new Vector3(0f, titleBase - valueBase, 0f)).y);
@@ -4878,29 +4879,20 @@ namespace EnglishPatch.Hooks
         }
 
         /*
-         * World height of the line a one line text is written on: the bottom of its drawn letters when none of them goes
-         * below the line (digits, "Str +"), which is exact, else measured from the font's capitals.
+         * World height of the top of a one line text's line. Two texts in the same font and size have their baseline at
+         * the same distance below it, so lining up the tops lines up the baselines exactly, whatever the letters are
+         * (the bottoms of drawn letters differ: round letters like "S" go a little below the line).
          */
-        private static bool Baseline(Text text, out float baseline)
+        private static bool LineTop(Text text, out float lineTop)
         {
-            baseline = 0f;
-            string plain = System.Text.RegularExpressions.Regex.Replace(text.text ?? "", "<[^>]*>", "");
-            if (plain.IndexOfAny(new[] { 'g', 'j', 'p', 'q', 'y', ',', ';', '(', ')', '[', ']', '{', '}', '/', '|' }) >= 0)
-            {
-                return SkillBarNames.LettersSpan(text, out float _, out baseline);
-            }
+            lineTop = 0f;
             RectTransform rect = text.rectTransform;
             _Generator.Populate(text.text, TextUtil.Measuring(text, rect.rect.size));
-            if (_Generator.vertexCount == 0 || text.pixelsPerUnit <= 0f)
+            if (_Generator.lineCount < 1 || text.pixelsPerUnit <= 0f)
             {
                 return false;
             }
-            float bottom = float.MaxValue;
-            foreach (UIVertex vert in _Generator.verts)
-            {
-                bottom = Mathf.Min(bottom, vert.position.y);
-            }
-            baseline = rect.TransformPoint(new Vector3(0f, bottom / text.pixelsPerUnit, 0f)).y;
+            lineTop = rect.TransformPoint(new Vector3(0f, _Generator.lines[0].topY / text.pixelsPerUnit, 0f)).y;
             return true;
         }
 
