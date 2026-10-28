@@ -2445,8 +2445,8 @@ namespace EnglishPatch.Hooks
     public class WGScrollBtn_UpdateWidget_Hook
     {
         private const float NameWidth = 290f;
-        //The small scroll in front of "Lv" touched names of two lines, it is drawn a little smaller
-        private const float LevelIconScale = 0.75f;
+        //The small icon in front of "Lv" or the count (a scroll, a hand) is drawn smaller, on every list
+        private const float LevelIconScale = 0.65f;
 
         //Size each scroll has in the prefab, and size and place of what sits inside it ("Lv 10" is a child of the scroll)
         private static readonly System.Collections.Generic.Dictionary<Transform, Vector3> _OriginalIconScale = new System.Collections.Generic.Dictionary<Transform, Vector3>();
@@ -2461,14 +2461,13 @@ namespace EnglishPatch.Hooks
         public static void Postfix(WGScrollBtn __instance, WGText ___itemName, WGImage ___remarkIcon, GameObject ___sign)
         {
             Text name = TextUtil.TextOf(___itemName);
-            UIForm form = TextUtil.OwningForm(__instance);
             if (name == null)
             {
                 return;
             }
 
-            //The skill lists' "Lv" scroll, the gear lists use that icon for something else
-            Transform levelIcon = ___remarkIcon != null && form is UIMartialArtsWindow ? ___remarkIcon.transform : null;
+            //The small icon in front of the level or the count (the "Lv" scroll of skills, the count of items), on every list
+            Transform levelIcon = ___remarkIcon != null ? ___remarkIcon.transform : null;
             if (levelIcon != null)
             {
                 if (!_OriginalIconScale.TryGetValue(levelIcon, out Vector3 scale))
