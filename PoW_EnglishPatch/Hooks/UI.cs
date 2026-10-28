@@ -4802,8 +4802,13 @@ namespace EnglishPatch.Hooks
         private const float MinTitleScale = 0.6f;
         private const float TitlePadding = 8f;
 
-        private static void OneLineTitle(Text title)
+        //Below this a heading is not shrunk to stay on one line, it goes on two justified lines instead
+        private const float MinOneLineScale = 0.85f;
+        private static readonly System.Text.RegularExpressions.Regex _AnySize = new System.Text.RegularExpressions.Regex("</?size[^>]*>");
+
+        private static void OneLineTitle(WGTitleValue row)
         {
+            Text title = row.Title;
             if (title == null || !title.gameObject.activeSelf || string.IsNullOrEmpty(title.text))
             {
                 return;
@@ -4818,15 +4823,37 @@ namespace EnglishPatch.Hooks
             }
             //The row sets the size every time, so the shrinking starts again from it
             int size = title.fontSize;
-            for (float scale = 0.95f; scale >= MinTitleScale; scale -= 0.05f)
+            for (float scale = 0.95f; scale >= MinOneLineScale; scale -= 0.05f)
             {
                 title.text = TextUtil.ScaleSizeTags(original, scale);
                 title.fontSize = Mathf.Max(1, Mathf.RoundToInt(size * scale));
                 if (TextUtil.LinesWidth(title, title.text) <= room)
                 {
+                    return;
+                }
+            }
+
+            /*
+             * Too long for one line ("Unlock special outing event to level up your friendship when the friendship bar is
+             * full." ran far out of the tip): two lines at most, shrinking only if needed, justified, and the row made as
+             * high as the two lines.
+             */
+            string plain = _AnySize.Replace(original, "");
+            title.horizontalOverflow = HorizontalWrapMode.Wrap;
+            title.verticalOverflow = VerticalWrapMode.Overflow;
+            title.alignment = (TextAnchor)((int)title.alignment / 3 * 3);
+            title.text = plain;
+            for (float scale = 1f; scale >= MinTitleScale; scale -= 0.05f)
+            {
+                title.fontSize = Mathf.Max(1, Mathf.RoundToInt(size * scale));
+                _Generator.Populate(plain, TextUtil.Measuring(title, title.rectTransform.rect.size));
+                if (_Generator.lineCount <= 2)
+                {
                     break;
                 }
             }
+            TextUtil.Justify(title);
+            row.SetHihgt(Mathf.CeilToInt(title.preferredHeight + TitlePadding));
         }
 
         /*
@@ -4834,7 +4861,94 @@ namespace EnglishPatch.Hooks
          * heading ("Middle of Month Bonus") sat to one side of the tip while its headings are centered. Their drawn letters,
          * name and value together, are put in the middle of the tip. Rows with a name and a value ("Energy -12") stay.
          */
-        private const float DamageRaise = 4f;
+        //Where the game put each text of the training tip rows, and the type of each row, kept when the row is set
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _GamePosition = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+        private static readonly System.Collections.Generic.Dictionary<WGTitleValue, WGTip.TipType> _RowType = new System.Collections.Generic.Dictionary<WGTitleValue, WGTip.TipType>();
+
+        /*
+         * Places the whole training tip from where the game put its texts: each row centered (CenterTrainingRow), then the
+         * rows moved up or down so the gaps between their drawn letters (capitals' top to baseline) are all the same, the
+         * first and last rows staying where they are. The level row sat lower and the damage row higher than the others.
+         */
+        private static void PlaceTrainingTip(WGTip tip)
+        {
+            if (tip == null || !tip.isActiveAndEnabled)
+            {
+                return;
+            }
+            var rows = new System.Collections.Generic.List<WGTitleValue>();
+            foreach (WGTitleValue row in tip.GetComponentsInChildren<WGTitleValue>())
+            {
+                foreach (Text text in new[] { row.Title, row.Value })
+                {
+                    if (text != null && _GamePosition.TryGetValue(text.rectTransform, out Vector2 position))
+                    {
+                        text.rectTransform.anchoredPosition = position;
+                    }
+                }
+                if (_RowType.TryGetValue(row, out WGTip.TipType type))
+                {
+                    CenterTrainingRow(row, type);
+                }
+                rows.Add(row);
+            }
+
+            //Top and bottom of each row's letters
+            var tops = new System.Collections.Generic.List<float>();
+            var bottoms = new System.Collections.Generic.List<float>();
+            var texts = new System.Collections.Generic.List<Text[]>();
+            foreach (WGTitleValue row in rows)
+            {
+                float top = float.MinValue, bottom = float.MaxValue;
+                var shown = new System.Collections.Generic.List<Text>();
+                foreach (Text text in new[] { row.Title, row.Value })
+                {
+                    if (text != null && text.isActiveAndEnabled && !string.IsNullOrEmpty(text.text)
+                        && SkillBarNames.LettersSpan(text, out float textTop, out float textBottom))
+                    {
+                        top = Mathf.Max(top, textTop);
+                        bottom = Mathf.Min(bottom, textBottom);
+                        shown.Add(text);
+                    }
+                }
+                if (shown.Count > 0)
+                {
+                    tops.Add(top);
+                    bottoms.Add(bottom);
+                    texts.Add(shown.ToArray());
+                }
+            }
+            int count = tops.Count;
+            if (count < 3)
+            {
+                return;
+            }
+            float letters = 0f;
+            for (int i = 0; i < count; i++)
+            {
+                letters += tops[i] - bottoms[i];
+            }
+            float gap = (tops[0] - bottoms[count - 1] - letters) / (count - 1);
+            //A gap that cannot be right (rows out of order, a measure gone wrong) leaves the rows where they are
+            if (gap <= 0f || gap > (tops[0] - bottoms[count - 1]))
+            {
+                return;
+            }
+            float wantedTop = tops[0];
+            for (int i = 0; i < count; i++)
+            {
+                float move = wantedTop - tops[i];
+                foreach (Text text in texts[i])
+                {
+                    RectTransform rect = text.rectTransform;
+                    if (rect.parent != null)
+                    {
+                        rect.anchoredPosition += new Vector2(0f, rect.parent.InverseTransformVector(new Vector3(0f, move, 0f)).y);
+                    }
+                }
+                wantedTop -= (tops[i] - bottoms[i]) + gap;
+            }
+        }
         private static readonly System.Text.RegularExpressions.Regex _Italic = new System.Text.RegularExpressions.Regex("</?i>", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         //Every text of the training tip is drawn in this size (see TrainingSize)
         private const int TitleSize = 22;
@@ -4948,12 +5062,6 @@ namespace EnglishPatch.Hooks
             {
                 up = 0f;
             }
-            //The damage row's bigger red letters ("Damage 271 → 271") looked low next to the others even in the middle of
-            //their row, the gap below them seemed smaller. Known by its arrow with a name (the level row has no name).
-            if (hasTitle && ((title.text ?? "") + (hasValue ? value.text : "")).IndexOf('→') >= 0)
-            {
-                up += Mathf.Abs(row.transform.TransformVector(new Vector3(0f, DamageRaise, 0f)).y);
-            }
 
             //The game puts both texts back at their place every time the row is set, so the move does not add up
             foreach (Text text in new[] { hasTitle ? title : null, hasValue ? value : null })
@@ -5009,7 +5117,7 @@ namespace EnglishPatch.Hooks
             }
             if (titlevalue != null && (type == WGTip.TipType.Title || type == WGTip.TipType.BigTitle || type == WGTip.TipType.VeryBigTitle))
             {
-                OneLineTitle(titlevalue.Title);
+                OneLineTitle(titlevalue);
             }
             if (titlevalue != null && TextUtil.OwningForm(titlevalue) is UINurturance)
             {
@@ -5019,16 +5127,14 @@ namespace EnglishPatch.Hooks
                  * frames, each time from where the game put the texts.
                  */
                 Text title = titlevalue.Title, value = titlevalue.Value;
-                Vector2 titlePosition = title != null ? title.rectTransform.anchoredPosition : Vector2.zero;
-                Vector2 valuePosition = value != null ? value.rectTransform.anchoredPosition : Vector2.zero;
-                WGTitleValue tipRow = titlevalue;
-                WGTip.TipType rowType = type;
-                Replacer.Run(titlevalue, () =>
+                if (title != null) _GamePosition[title.rectTransform] = title.rectTransform.anchoredPosition;
+                if (value != null) _GamePosition[value.rectTransform] = value.rectTransform.anchoredPosition;
+                _RowType[titlevalue] = type;
+                WGTip tip = titlevalue.GetComponentInParent<WGTip>();
+                if (tip != null)
                 {
-                    if (title != null) title.rectTransform.anchoredPosition = titlePosition;
-                    if (value != null) value.rectTransform.anchoredPosition = valuePosition;
-                    CenterTrainingRow(tipRow, rowType);
-                });
+                    Replacer.Run(tip, () => PlaceTrainingTip(tip));
+                }
             }
             if (titlevalue == null || (type != WGTip.TipType.Context && type != WGTip.TipType.TraitContext))
             {
