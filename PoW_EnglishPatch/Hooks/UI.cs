@@ -2437,9 +2437,9 @@ namespace EnglishPatch.Hooks
      * characters, English names wrapped into two or three lines and ran over the "Lv" below them. The name area is now
      * as wide as "Long Howl from Heavenly Gate" plus a little, its left end stays where it is, longer names take two lines.
      * The small scroll in front of "Lv" is drawn a little smaller, so it does not touch names of two lines.
-     * The gear selection popups (Gear tab, and in combat) get the same wider names ("Bloodstained Iron Claw" on one line),
-     * never past the "New" badge those lists can show on the right.
-     * Other lists with the same button keep their layout.
+     * Every other list with this button (gear selection, the Medicine tab, combat) gets the same wider names
+     * ("Bloodstained Iron Claw" on one line), never past the "New" badge some lists show on the right, nor past the
+     * right edge of the row itself.
      */
     [HarmonyPatch(typeof(WGScrollBtn), "UpdateWidget")]
     public class WGScrollBtn_UpdateWidget_Hook
@@ -2462,7 +2462,7 @@ namespace EnglishPatch.Hooks
         {
             Text name = TextUtil.TextOf(___itemName);
             UIForm form = TextUtil.OwningForm(__instance);
-            if (name == null || !(form is UIMartialArtsWindow || form is UIInventoryWindow || form is UIBattleInventoryWindow))
+            if (name == null)
             {
                 return;
             }
@@ -2501,6 +2501,17 @@ namespace EnglishPatch.Hooks
             rect.anchoredPosition = original[1];
 
             float grow = NameWidth - rect.rect.width;
+            //Not past the right edge of the row
+            if (__instance.transform is RectTransform row && rect.parent != null)
+            {
+                Vector3[] edges = new Vector3[4];
+                row.GetWorldCorners(edges);
+                float rowRight = Mathf.Max(edges[0].x, edges[2].x);
+                rect.GetWorldCorners(edges);
+                float nameRight = Mathf.Max(edges[0].x, edges[2].x);
+                float room = Mathf.Abs(rect.parent.InverseTransformVector(new Vector3(rowRight - nameRight, 0f, 0f)).x) * Mathf.Sign(rowRight - nameRight) - SignGap;
+                grow = Mathf.Min(grow, room / Mathf.Max(0.0001f, rect.localScale.x));
+            }
             //Not past the "New" badge
             if (___sign != null && ___sign.activeInHierarchy && ___sign.transform is RectTransform sign && rect.parent != null)
             {
