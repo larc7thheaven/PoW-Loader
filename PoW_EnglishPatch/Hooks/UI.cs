@@ -2540,6 +2540,7 @@ namespace EnglishPatch.Hooks
     {
         public static void Postfix(WGBookBtn __instance, ref WGText ___itemName, System.Collections.Generic.List<WGImage> ___difficultIcons)
         {
+            Widen(__instance, TextUtil.TextOf(___itemName));
             //Long book names took 3 lines and ran into "Remaining Chapters", they shrink until they take at most 2
             TextUtil.ShrinkToLines(TextUtil.TextOf(___itemName), NameLines, NameMinSize);
             AlignChapters(__instance, TextUtil.TextOf(___itemName), ___difficultIcons);
@@ -2553,6 +2554,46 @@ namespace EnglishPatch.Hooks
                 Canvas.willRenderCanvases += AlignPending;
                 _Subscribed = true;
             }
+        }
+
+        /*
+         * The name area ended well before the right edge of the row, names wrapped early ("Palm of Thirty Six / Heavenly
+         * Spirits: Vol II"). It now reaches the row's right edge (less RowGap), its left edge stays.
+         */
+        private const float RowGap = 12f;
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2[]> _NameOriginal = new System.Collections.Generic.Dictionary<RectTransform, Vector2[]>();
+
+        private static void Widen(WGBookBtn button, Text name)
+        {
+            if (name == null || !(button.transform is RectTransform row) || name.rectTransform.parent == null)
+            {
+                return;
+            }
+            RectTransform rect = name.rectTransform;
+            if (!_NameOriginal.TryGetValue(rect, out Vector2[] original))
+            {
+                TextUtil.Prune(_NameOriginal);
+                original = new[] { rect.sizeDelta, rect.anchoredPosition };
+                _NameOriginal[rect] = original;
+            }
+            rect.sizeDelta = original[0];
+            rect.anchoredPosition = original[1];
+
+            //Both right edges in the space of the name's parent
+            Transform space = rect.parent;
+            Vector3[] corners = new Vector3[4];
+            row.GetWorldCorners(corners);
+            float rowRight = Mathf.Max(space.InverseTransformPoint(corners[0]).x, space.InverseTransformPoint(corners[2]).x);
+            rect.GetWorldCorners(corners);
+            float nameRight = Mathf.Max(space.InverseTransformPoint(corners[0]).x, space.InverseTransformPoint(corners[2]).x);
+            float grow = (rowRight - RowGap - nameRight) / Mathf.Max(0.0001f, Mathf.Abs(rect.localScale.x));
+            //Only wider, and not more than the name area itself again (a row found far bigger is not the name's row)
+            if (grow <= 0f || grow > rect.rect.width)
+            {
+                return;
+            }
+            rect.sizeDelta += new Vector2(grow, 0f);
+            rect.anchoredPosition += new Vector2(grow * rect.pivot.x * Mathf.Abs(rect.localScale.x), 0f);
         }
 
         private static readonly System.Collections.Generic.Dictionary<WGBookBtn, System.Collections.Generic.List<WGImage>> _Pending = new System.Collections.Generic.Dictionary<WGBookBtn, System.Collections.Generic.List<WGImage>>();
