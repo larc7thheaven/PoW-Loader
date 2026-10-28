@@ -4716,6 +4716,8 @@ namespace EnglishPatch.Hooks
          * name and value together, are put in the middle of the tip. Rows with a name and a value ("Energy -12") stay.
          */
         private const float DamageRaise = 4f;
+        //Size the headings of tips are drawn in (WGTitleValue_TitleFormat_Hook)
+        private const int TitleSize = 24;
 
         private static void CenterTrainingRow(WGTitleValue row, WGTip.TipType type)
         {
@@ -4727,6 +4729,25 @@ namespace EnglishPatch.Hooks
             if (!centered || (!hasTitle && !hasValue))
             {
                 return;
+            }
+
+            //The level change in the same size as the damage line (a heading, TitleSize), its arrow with it
+            if (type == WGTip.TipType.LevelUP && hasValue && value.fontSize > 0 && value.fontSize != TitleSize)
+            {
+                value.text = TextUtil.ScaleSizeTags(value.text, (float)TitleSize / value.fontSize);
+                value.fontSize = TitleSize;
+            }
+
+            //"Str +" and its "7" stood at the two ends of the row: the number follows the name after a space
+            if (type == WGTip.TipType.TitleImportantValue && hasTitle && hasValue)
+            {
+                float titleLeft = float.MaxValue, titleRight = float.MinValue, valueLeft = float.MaxValue, valueRight = float.MinValue;
+                if (InkX(title, ref titleLeft, ref titleRight) && InkX(value, ref valueLeft, ref valueRight) && value.rectTransform.parent != null)
+                {
+                    float space = Mathf.Abs(title.rectTransform.TransformVector(new Vector3(title.fontSize * 0.3f, 0f, 0f)).x);
+                    float move = titleRight + space - valueLeft;
+                    value.rectTransform.anchoredPosition += new Vector2(value.rectTransform.parent.InverseTransformVector(new Vector3(move, 0f, 0f)).x, 0f);
+                }
             }
 
             float left = float.MaxValue, right = float.MinValue;
