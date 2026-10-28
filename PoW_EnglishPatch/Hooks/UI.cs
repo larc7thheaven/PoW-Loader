@@ -2375,7 +2375,9 @@ namespace EnglishPatch.Hooks
      * characters, English names wrapped into two or three lines and ran over the "Lv" below them. The name area is now
      * as wide as "Long Howl from Heavenly Gate" plus a little, its left end stays where it is, longer names take two lines.
      * The small scroll in front of "Lv" is drawn a little smaller, so it does not touch names of two lines.
-     * Other lists with the same button keep their layout, some of them show a "New" badge on the right.
+     * The gear selection popups (Gear tab, and in combat) get the same wider names ("Bloodstained Iron Claw" on one line),
+     * never past the "New" badge those lists can show on the right.
+     * Other lists with the same button keep their layout.
      */
     [HarmonyPatch(typeof(WGScrollBtn), "UpdateWidget")]
     public class WGScrollBtn_UpdateWidget_Hook
@@ -2391,15 +2393,20 @@ namespace EnglishPatch.Hooks
         //Width and position each name area has in the prefab
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2[]> _Original = new System.Collections.Generic.Dictionary<RectTransform, Vector2[]>();
 
-        public static void Postfix(WGScrollBtn __instance, WGText ___itemName, WGImage ___remarkIcon)
+        //Room kept between a name and the "New" badge
+        private const float SignGap = 6f;
+
+        public static void Postfix(WGScrollBtn __instance, WGText ___itemName, WGImage ___remarkIcon, GameObject ___sign)
         {
             Text name = TextUtil.TextOf(___itemName);
-            if (name == null || !(TextUtil.OwningForm(__instance) is UIMartialArtsWindow))
+            UIForm form = TextUtil.OwningForm(__instance);
+            if (name == null || !(form is UIMartialArtsWindow || form is UIInventoryWindow || form is UIBattleInventoryWindow))
             {
                 return;
             }
 
-            Transform levelIcon = ___remarkIcon != null ? ___remarkIcon.transform : null;
+            //The skill lists' "Lv" scroll, the gear lists use that icon for something else
+            Transform levelIcon = ___remarkIcon != null && form is UIMartialArtsWindow ? ___remarkIcon.transform : null;
             if (levelIcon != null)
             {
                 if (!_OriginalIconScale.TryGetValue(levelIcon, out Vector3 scale))
@@ -2432,6 +2439,16 @@ namespace EnglishPatch.Hooks
             rect.anchoredPosition = original[1];
 
             float grow = NameWidth - rect.rect.width;
+            //Not past the "New" badge
+            if (___sign != null && ___sign.activeInHierarchy && ___sign.transform is RectTransform sign && rect.parent != null)
+            {
+                Vector3[] corners = new Vector3[4];
+                sign.GetWorldCorners(corners);
+                float signLeft = corners[0].x;
+                rect.GetWorldCorners(corners);
+                float room = rect.parent.InverseTransformVector(new Vector3(signLeft - corners[2].x, 0f, 0f)).x - SignGap;
+                grow = Mathf.Min(grow, room / Mathf.Max(0.0001f, rect.localScale.x));
+            }
             if (grow > 0f)
             {
                 rect.sizeDelta += new Vector2(grow, 0f);
@@ -4549,6 +4566,63 @@ namespace EnglishPatch.Hooks
 
         private static readonly System.Collections.Generic.Dictionary<RectTransform, float> _Left = new System.Collections.Generic.Dictionary<RectTransform, float>();
 
+        /*
+         * The training tip (main life screen): the level change ("Lv. 1 → Lv. 1"), the damage change and the rows with only a
+         * heading ("Middle of Month Bonus") sat to one side of the tip while its headings are centered. Their drawn letters,
+         * name and value together, are put in the middle of the tip. Rows with a name and a value ("Energy -12") stay.
+         */
+        private static void CenterTrainingRow(WGTitleValue row, WGTip.TipType type)
+        {
+            Text title = row.Title, value = row.Value;
+            bool hasTitle = title != null && title.gameObject.activeSelf && !string.IsNullOrEmpty(title.text);
+            bool hasValue = value != null && value.gameObject.activeSelf && !string.IsNullOrEmpty(value.text);
+            bool centered = type == WGTip.TipType.LevelUP || type == WGTip.TipType.TitleImportantValue
+                || (type == WGTip.TipType.TitleValue && hasTitle && !hasValue);
+            if (!centered || (!hasTitle && !hasValue))
+            {
+                return;
+            }
+
+            float left = float.MaxValue, right = float.MinValue;
+            if (hasTitle && !InkX(title, ref left, ref right) || hasValue && !InkX(value, ref left, ref right))
+            {
+                return;
+            }
+            Vector3[] corners = new Vector3[4];
+            ((RectTransform)row.transform).GetWorldCorners(corners);
+            float shift = (corners[0].x + corners[2].x) / 2f - (left + right) / 2f;
+
+            //The game puts both texts back at their place every time the row is set, so the move does not add up
+            foreach (Text text in new[] { hasTitle ? title : null, hasValue ? value : null })
+            {
+                RectTransform rect = text != null ? text.rectTransform : null;
+                if (rect != null && rect.parent != null)
+                {
+                    rect.anchoredPosition += new Vector2(rect.parent.InverseTransformVector(new Vector3(shift, 0f, 0f)).x, 0f);
+                }
+            }
+        }
+
+        //Widens left..right (world) with the drawn letters of a text, false when nothing is drawn
+        private static bool InkX(Text text, ref float left, ref float right)
+        {
+            RectTransform rect = text.rectTransform;
+            _Generator.Populate(text.text, TextUtil.Measuring(text, rect.rect.size));
+            if (_Generator.vertexCount == 0 || text.pixelsPerUnit <= 0f)
+            {
+                return false;
+            }
+            float min = float.MaxValue, max = float.MinValue;
+            foreach (UIVertex vert in _Generator.verts)
+            {
+                min = Mathf.Min(min, vert.position.x);
+                max = Mathf.Max(max, vert.position.x);
+            }
+            left = Mathf.Min(left, rect.TransformPoint(new Vector3(min / text.pixelsPerUnit, 0f, 0f)).x);
+            right = Mathf.Max(right, rect.TransformPoint(new Vector3(max / text.pixelsPerUnit, 0f, 0f)).x);
+            return true;
+        }
+
         private static void ElementTip(Text text, RectTransform rect)
         {
             if (!_Left.TryGetValue(rect, out float left))
@@ -4564,6 +4638,10 @@ namespace EnglishPatch.Hooks
 
         public static void Postfix(WGTitleValue titlevalue, WGTip.TipType type)
         {
+            if (titlevalue != null && TextUtil.OwningForm(titlevalue) is UINurturance)
+            {
+                CenterTrainingRow(titlevalue, type);
+            }
             if (titlevalue == null || (type != WGTip.TipType.Context && type != WGTip.TipType.TraitContext))
             {
                 return;
