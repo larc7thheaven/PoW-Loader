@@ -4807,6 +4807,12 @@ namespace EnglishPatch.Hooks
                     value.text = TextUtil.ScaleSizeTags(value.text, (float)title.fontSize / value.fontSize);
                     value.fontSize = title.fontSize;
                 }
+                //The number was slanted (italic), it is upright like the name
+                value.fontStyle = title.fontStyle;
+                if (value.text.IndexOf("<i>", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    value.text = System.Text.RegularExpressions.Regex.Replace(value.text, "</?i>", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                }
                 if (value.rectTransform.parent != null
                     && SkillBarNames.LettersSpan(title, out float _, out float titleBase)
                     && SkillBarNames.LettersSpan(value, out float _, out float valueBase)
