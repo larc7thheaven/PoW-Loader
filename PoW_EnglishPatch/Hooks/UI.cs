@@ -2543,6 +2543,7 @@ namespace EnglishPatch.Hooks
             Widen(__instance, TextUtil.TextOf(___itemName));
             //Long book names took 3 lines and ran into "Remaining Chapters", they shrink until they take at most 2
             TextUtil.ShrinkToLines(TextUtil.TextOf(___itemName), NameLines, NameMinSize);
+            KeepVolumeTogether(TextUtil.TextOf(___itemName));
             AlignChapters(__instance, TextUtil.TextOf(___itemName), ___difficultIcons);
 
             //A button shown for the first time is not laid out yet ("Remaining Chapters" may not even have its English text),
@@ -2594,6 +2595,17 @@ namespace EnglishPatch.Hooks
             }
             rect.sizeDelta += new Vector2(grow, 0f);
             rect.anchoredPosition += new Vector2(grow * rect.pivot.x * Mathf.Abs(rect.localScale.x), 0f);
+        }
+
+        //"Vol" and its number on the same line ("Hundred Forms of Sands : Vol / I" broke between them)
+        private static readonly System.Text.RegularExpressions.Regex _Volume = new System.Text.RegularExpressions.Regex(@"\bVol ([IVX]+)\b");
+
+        private static void KeepVolumeTogether(Text name)
+        {
+            if (name != null && name.text != null && name.text.IndexOf("Vol ", System.StringComparison.Ordinal) >= 0)
+            {
+                name.text = _Volume.Replace(name.text, "Vol\u00A0$1");
+            }
         }
 
         private static readonly System.Collections.Generic.Dictionary<WGBookBtn, System.Collections.Generic.List<WGImage>> _Pending = new System.Collections.Generic.Dictionary<WGBookBtn, System.Collections.Generic.List<WGImage>>();
