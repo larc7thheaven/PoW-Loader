@@ -4911,7 +4911,9 @@ namespace EnglishPatch.Hooks
             bool social = false;
             foreach (WGTitleValue row in all)
             {
-                if (row.Title != null && row.Title.text != null && row.Title.text.IndexOf("friend", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                //Only shown lines: the rows are reused, a hidden one still holds the text of an earlier tip
+                if (row.Title != null && row.Title.isActiveAndEnabled && row.Title.text != null
+                    && row.Title.text.IndexOf("friend", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     social = true;
                     break;
