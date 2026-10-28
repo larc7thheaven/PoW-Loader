@@ -4814,11 +4814,20 @@ namespace EnglishPatch.Hooks
                 {
                     value.text = System.Text.RegularExpressions.Regex.Replace(value.text, "</?i>", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                 }
-                if (value.rectTransform.parent != null
-                    && LineTop(title, out float titleBase) && LineTop(value, out float valueBase)
-                    && Mathf.Abs(titleBase - valueBase) < Mathf.Abs(title.rectTransform.TransformVector(new Vector3(0f, title.fontSize, 0f)).y))
+                /*
+                 * On the name's line: same font, size and style as the name, so given the same vertical box (anchors,
+                 * pivot, height, position) and the same vertical alignment, Unity writes both on the same line. Measuring
+                 * each and moving one gave a pixel or two of difference from row to row.
+                 */
+                RectTransform valueRect = value.rectTransform, titleRect = title.rectTransform;
+                if (valueRect.parent == titleRect.parent)
                 {
-                    value.rectTransform.anchoredPosition += new Vector2(0f, value.rectTransform.parent.InverseTransformVector(new Vector3(0f, titleBase - valueBase, 0f)).y);
+                    valueRect.anchorMin = new Vector2(valueRect.anchorMin.x, titleRect.anchorMin.y);
+                    valueRect.anchorMax = new Vector2(valueRect.anchorMax.x, titleRect.anchorMax.y);
+                    valueRect.pivot = new Vector2(valueRect.pivot.x, titleRect.pivot.y);
+                    valueRect.sizeDelta = new Vector2(valueRect.sizeDelta.x, titleRect.sizeDelta.y);
+                    valueRect.anchoredPosition = new Vector2(valueRect.anchoredPosition.x, titleRect.anchoredPosition.y);
+                    value.alignment = (TextAnchor)((int)title.alignment / 3 * 3 + (int)value.alignment % 3);
                 }
 
                 float titleLeft = float.MaxValue, titleRight = float.MinValue, valueLeft = float.MaxValue, valueRight = float.MinValue;
@@ -4878,24 +4887,6 @@ namespace EnglishPatch.Hooks
             }
         }
 
-        /*
-         * World height of the top of a one line text's line. Two texts in the same font and size have their baseline at
-         * the same distance below it, so lining up the tops lines up the baselines exactly, whatever the letters are
-         * (the bottoms of drawn letters differ: round letters like "S" go a little below the line).
-         */
-        private static bool LineTop(Text text, out float lineTop)
-        {
-            lineTop = 0f;
-            RectTransform rect = text.rectTransform;
-            _Generator.Populate(text.text, TextUtil.Measuring(text, rect.rect.size));
-            if (_Generator.lineCount < 1 || text.pixelsPerUnit <= 0f)
-            {
-                return false;
-            }
-            lineTop = rect.TransformPoint(new Vector3(0f, _Generator.lines[0].topY / text.pixelsPerUnit, 0f)).y;
-            return true;
-        }
-
         //Widens left..right (world) with the drawn letters of a text, false when nothing is drawn
         private static bool InkX(Text text, ref float left, ref float right)
         {
@@ -4937,7 +4928,22 @@ namespace EnglishPatch.Hooks
             }
             if (titlevalue != null && TextUtil.OwningForm(titlevalue) is UINurturance)
             {
-                CenterTrainingRow(titlevalue, type);
+                /*
+                 * The tip's layout gives the rows their width only after this, so they were placed for the wrong width
+                 * and only came right when the tip was set again a few seconds later. They are placed again over the next
+                 * frames, each time from where the game put the texts.
+                 */
+                Text title = titlevalue.Title, value = titlevalue.Value;
+                Vector2 titlePosition = title != null ? title.rectTransform.anchoredPosition : Vector2.zero;
+                Vector2 valuePosition = value != null ? value.rectTransform.anchoredPosition : Vector2.zero;
+                WGTitleValue row = titlevalue;
+                WGTip.TipType rowType = type;
+                Replacer.Run(titlevalue, () =>
+                {
+                    if (title != null) title.rectTransform.anchoredPosition = titlePosition;
+                    if (value != null) value.rectTransform.anchoredPosition = valuePosition;
+                    CenterTrainingRow(row, rowType);
+                });
             }
             if (titlevalue == null || (type != WGTip.TipType.Context && type != WGTip.TipType.TraitContext))
             {
