@@ -4699,6 +4699,8 @@ namespace EnglishPatch.Hooks
          * heading ("Middle of Month Bonus") sat to one side of the tip while its headings are centered. Their drawn letters,
          * name and value together, are put in the middle of the tip. Rows with a name and a value ("Energy -12") stay.
          */
+        private const float DamageRaise = 2f;
+
         private static void CenterTrainingRow(WGTitleValue row, WGTip.TipType type)
         {
             Text title = row.Title, value = row.Value;
@@ -4739,6 +4741,11 @@ namespace EnglishPatch.Hooks
             if (Mathf.Abs(up) > corners[1].y - corners[0].y)
             {
                 up = 0f;
+            }
+            //The damage row's bigger red letters looked a little low next to the others even in the middle of their row
+            if (type == WGTip.TipType.TitleImportantValue)
+            {
+                up += Mathf.Abs(row.transform.TransformVector(new Vector3(0f, DamageRaise, 0f)).y);
             }
 
             //The game puts both texts back at their place every time the row is set, so the move does not add up
