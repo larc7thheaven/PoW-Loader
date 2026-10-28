@@ -4876,8 +4876,20 @@ namespace EnglishPatch.Hooks
             {
                 return;
             }
+            WGTitleValue[] all = tip.GetComponentsInChildren<WGTitleValue>();
+            //The Socialize tip (friendship): a paragraph, every line from the same left margin, wrapped lines justified
+            bool social = false;
+            foreach (WGTitleValue row in all)
+            {
+                if (row.Title != null && row.Title.text != null && row.Title.text.IndexOf("friend", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    social = true;
+                    break;
+                }
+            }
+
             var rows = new System.Collections.Generic.List<WGTitleValue>();
-            foreach (WGTitleValue row in tip.GetComponentsInChildren<WGTitleValue>())
+            foreach (WGTitleValue row in all)
             {
                 foreach (Text text in new[] { row.Title, row.Value })
                 {
@@ -4886,7 +4898,16 @@ namespace EnglishPatch.Hooks
                         text.rectTransform.anchoredPosition = position;
                     }
                 }
-                if (_RowType.TryGetValue(row, out WGTip.TipType type))
+                if (social)
+                {
+                    Text title = row.Title;
+                    if (title != null && !string.IsNullOrEmpty(title.text))
+                    {
+                        title.alignment = (TextAnchor)((int)title.alignment / 3 * 3);
+                        TextUtil.Justify(title);
+                    }
+                }
+                else if (_RowType.TryGetValue(row, out WGTip.TipType type))
                 {
                     CenterTrainingRow(row, type);
                 }
