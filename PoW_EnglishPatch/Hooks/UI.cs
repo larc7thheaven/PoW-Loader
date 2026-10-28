@@ -3583,8 +3583,9 @@ namespace EnglishPatch.Hooks
         //The text area of the prefab (left and right edges), the bubble is shown again and again
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2[]> _Original = new System.Collections.Generic.Dictionary<RectTransform, Vector2[]>();
 
-        public static void Postfix(WGText ___talk)
+        public static void Postfix(WGElixirIntroduction __instance, WGText ___talk)
         {
+            LowerEffectHeading(__instance);
             Text text = TextUtil.TextOf(___talk);
             if (text == null)
             {
@@ -3603,6 +3604,37 @@ namespace EnglishPatch.Hooks
          * that width and its pivot is moved so its edges land there at the position the game gives it.
          */
         private const float BubbleLeft = 1283f, BubbleRight = 1708f, Gap = 32f, ReferenceWidth = 1920f;
+
+        //The "Effect" heading sat close under the info text, it moves down EffectLower (from its place in the prefab)
+        private const float EffectLower = 8f;
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _HeadingOrigin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+        private static Text _Effect;
+
+        private static void LowerEffectHeading(WGElixirIntroduction widget)
+        {
+            if (_Effect == null)
+            {
+                foreach (Text label in widget.GetComponentsInChildren<Text>(true))
+                {
+                    if (label.text != null && label.text.Trim() == "Effect")
+                    {
+                        _Effect = label;
+                        break;
+                    }
+                }
+                if (_Effect == null)
+                {
+                    return;
+                }
+            }
+            RectTransform rect = _Effect.rectTransform;
+            if (!_HeadingOrigin.TryGetValue(rect, out Vector2 origin))
+            {
+                origin = rect.anchoredPosition;
+                _HeadingOrigin[rect] = origin;
+            }
+            rect.anchoredPosition = origin - new Vector2(0f, EffectLower);
+        }
 
         private static void SpanBubble(Text text)
         {
