@@ -2218,6 +2218,11 @@ namespace EnglishPatch.Hooks
             //Every label of the life menu (main row and all its pages) sits in the middle of its banner
             text.alignment = TextAnchor.MiddleCenter;
             ShrinkSkillLevel(__instance.SkillLevelText);
+            Text level = __instance.SkillLevelText;
+            if (level != null && level.isActiveAndEnabled && !string.IsNullOrEmpty(level.text))
+            {
+                Replacer.Run(__instance, () => CenterSkillLevel(level));
+            }
 
             //Only Return, Back/Next (previous and next page), Socialize and the character names inside Socialize are fitted to their box, the other buttons keep the default size
             Nurturance nurturance = __instance.tree?.Value;
@@ -2341,6 +2346,45 @@ namespace EnglishPatch.Hooks
                 _LevelSize[level] = size;
             }
             level.fontSize = Mathf.RoundToInt(size * SkillLevelScale);
+        }
+
+        /*
+         * The skill level ("10", "1") sat off the middle of the small diamond behind it: its drawn digits are put in the
+         * middle of what the diamond draws, both ways (see UIBattle_SkillHotKeys_Hook, the same for the combat key numbers).
+         */
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _LevelOrigin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+
+        private static void CenterSkillLevel(Text level)
+        {
+            if (level == null || !level.isActiveAndEnabled || string.IsNullOrEmpty(level.text))
+            {
+                return;
+            }
+            level.verticalOverflow = VerticalWrapMode.Overflow;
+            level.horizontalOverflow = HorizontalWrapMode.Overflow;
+
+            RectTransform rect = level.rectTransform;
+            if (!_LevelOrigin.TryGetValue(rect, out Vector2 origin))
+            {
+                TextUtil.Prune(_LevelOrigin);
+                origin = rect.anchoredPosition;
+                _LevelOrigin[rect] = origin;
+            }
+            rect.anchoredPosition = origin;
+
+            Image badge = UIBattle_SkillHotKeys_Hook.BadgeOf(level);
+            Vector3? ink = UIBattle_SkillHotKeys_Hook.InkCenter(level);
+            if (badge == null || ink == null || rect.parent == null)
+            {
+                return;
+            }
+            Vector3 shift = rect.parent.InverseTransformVector(UIBattle_SkillHotKeys_Hook.DrawnMiddle(badge) - ink.Value);
+            //Within the diamond, a bigger move is a measure gone wrong
+            Vector2 size = badge.rectTransform.rect.size;
+            if (Mathf.Abs(shift.x) <= size.x && Mathf.Abs(shift.y) <= size.y)
+            {
+                rect.anchoredPosition = origin + new Vector2(shift.x, shift.y);
+            }
         }
 
         private const float SkillLevelScale = 0.8f;
@@ -4567,6 +4611,41 @@ namespace EnglishPatch.Hooks
         private static readonly System.Collections.Generic.Dictionary<RectTransform, float> _Left = new System.Collections.Generic.Dictionary<RectTransform, float>();
 
         /*
+         * Heading rows of a tip ("Min criteria NOT reached, slower learning" in the training tip) are one line high, a longer
+         * English heading wrapped into a second line over the next row, and broke inside a word (non-breaking spaces).
+         * It stays on one line and shrinks (its size tags with it) until it fits the row, never below MinTitleScale.
+         */
+        private const float MinTitleScale = 0.6f;
+        private const float TitlePadding = 8f;
+
+        private static void OneLineTitle(Text title)
+        {
+            if (title == null || !title.gameObject.activeSelf || string.IsNullOrEmpty(title.text))
+            {
+                return;
+            }
+            string original = title.text.Replace('\u00A0', ' ');
+            title.text = original;
+            title.horizontalOverflow = HorizontalWrapMode.Overflow;
+            float room = title.rectTransform.rect.width - 2f * TitlePadding;
+            if (room <= 0f || TextUtil.LinesWidth(title, original) <= room)
+            {
+                return;
+            }
+            //The row sets the size every time, so the shrinking starts again from it
+            int size = title.fontSize;
+            for (float scale = 0.95f; scale >= MinTitleScale; scale -= 0.05f)
+            {
+                title.text = TextUtil.ScaleSizeTags(original, scale);
+                title.fontSize = Mathf.Max(1, Mathf.RoundToInt(size * scale));
+                if (TextUtil.LinesWidth(title, title.text) <= room)
+                {
+                    break;
+                }
+            }
+        }
+
+        /*
          * The training tip (main life screen): the level change ("Lv. 1 → Lv. 1"), the damage change and the rows with only a
          * heading ("Middle of Month Bonus") sat to one side of the tip while its headings are centered. Their drawn letters,
          * name and value together, are put in the middle of the tip. Rows with a name and a value ("Energy -12") stay.
@@ -4638,6 +4717,10 @@ namespace EnglishPatch.Hooks
 
         public static void Postfix(WGTitleValue titlevalue, WGTip.TipType type)
         {
+            if (titlevalue != null && (type == WGTip.TipType.Title || type == WGTip.TipType.BigTitle || type == WGTip.TipType.VeryBigTitle))
+            {
+                OneLineTitle(titlevalue.Title);
+            }
             if (titlevalue != null && TextUtil.OwningForm(titlevalue) is UINurturance)
             {
                 CenterTrainingRow(titlevalue, type);
@@ -4801,7 +4884,7 @@ namespace EnglishPatch.Hooks
          * World middle of what the badge draws: an image can have a transparent margin around its picture (wider on one
          * side), then the middle of its area is not the middle of the diamond seen. The margin is taken off when known.
          */
-        private static Vector3 DrawnMiddle(Image badge)
+        internal static Vector3 DrawnMiddle(Image badge)
         {
             RectTransform rect = badge.rectTransform;
             Rect area = rect.rect;
@@ -4817,7 +4900,7 @@ namespace EnglishPatch.Hooks
         }
 
         //The smallest image around the number, the number itself or one next to it, no more than a few times its size
-        private static Image BadgeOf(Text text)
+        internal static Image BadgeOf(Text text)
         {
             Vector3[] own = new Vector3[4];
             text.rectTransform.GetWorldCorners(own);
@@ -4860,7 +4943,7 @@ namespace EnglishPatch.Hooks
         }
 
         //World middle of the drawn letters of a text
-        private static Vector3? InkCenter(Text text)
+        internal static Vector3? InkCenter(Text text)
         {
             RectTransform rect = text.rectTransform;
             _Generator.Populate(text.text, TextUtil.Measuring(text, rect.rect.size));
