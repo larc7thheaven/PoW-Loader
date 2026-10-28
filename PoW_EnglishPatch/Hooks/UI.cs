@@ -2527,7 +2527,13 @@ namespace EnglishPatch.Hooks
                 rect.sizeDelta += new Vector2(grow, 0f);
                 rect.anchoredPosition += new Vector2(grow * rect.pivot.x, 0f);
             }
+
+            //Never more than two lines (long item names took three and ran into the count below): shrinks if needed
+            TextUtil.ShrinkToLines(name, MaxLines, MinNameSize);
         }
+
+        private const int MaxLines = 2;
+        private const int MinNameSize = 12;
     }
 
     [HarmonyPatch(typeof(WGBookBtn), "UpdateWidget")]
