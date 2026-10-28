@@ -609,8 +609,8 @@ SecondaryInterface1002	招式养成指令TIP标题	Recommended Fundamentals
 SecondaryInterface1003	招式养成指令TIP标题2	Experience
 SecondaryInterface1004	招式养成指令TIP标题	1 Turn required
 SecondaryInterface1005	养成介面设施指令TIP	Facilities
-SecondaryInterface1006	习武门槛加速提示	<size=21><color=#FD420DFF>Min criteria reached, faster learning</color></size>
-SecondaryInterface1007	习武门槛减速提示	<size=21><color=#43C386FF>Min criteria NOT reached, slower learning</color></size>
+SecondaryInterface1006	习武门槛加速提示	<color=#FD420DFF>Min criteria reached, faster learning</color>
+SecondaryInterface1007	习武门槛减速提示	<color=#43C386FF>Min criteria NOT reached, slower learning</color>
 SecondaryInterface1008	招式威力tip	<color=#FD420DFF>Damage {0}→{1}</color>
 SecondaryInterface1009	招式提升tip	{0} +
 SecondaryInterface1010	不消耗时间指令	0 Turn required

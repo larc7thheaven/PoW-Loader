@@ -4818,7 +4818,7 @@ namespace EnglishPatch.Hooks
          */
         private const float DamageRaise = 4f;
         //Every text of the training tip is drawn in this size (see TrainingSize)
-        private const int TitleSize = 21;
+        private const int TitleSize = 22;
 
         /*
          * The training tip (main life screen) mixed sizes 20 to 36 (headings, names, values, lines with their own size tag).
