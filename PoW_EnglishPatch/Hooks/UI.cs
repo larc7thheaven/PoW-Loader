@@ -4936,13 +4936,13 @@ namespace EnglishPatch.Hooks
                 Text title = titlevalue.Title, value = titlevalue.Value;
                 Vector2 titlePosition = title != null ? title.rectTransform.anchoredPosition : Vector2.zero;
                 Vector2 valuePosition = value != null ? value.rectTransform.anchoredPosition : Vector2.zero;
-                WGTitleValue row = titlevalue;
+                WGTitleValue tipRow = titlevalue;
                 WGTip.TipType rowType = type;
                 Replacer.Run(titlevalue, () =>
                 {
                     if (title != null) title.rectTransform.anchoredPosition = titlePosition;
                     if (value != null) value.rectTransform.anchoredPosition = valuePosition;
-                    CenterTrainingRow(row, rowType);
+                    CenterTrainingRow(tipRow, rowType);
                 });
             }
             if (titlevalue == null || (type != WGTip.TipType.Context && type != WGTip.TipType.TraitContext))
