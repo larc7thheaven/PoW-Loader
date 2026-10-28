@@ -4671,13 +4671,35 @@ namespace EnglishPatch.Hooks
             ((RectTransform)row.transform).GetWorldCorners(corners);
             float shift = (corners[0].x + corners[2].x) / 2f - (left + right) / 2f;
 
+            /*
+             * Top to bottom too: the rows are as high as each other but their letters sat at different heights in them (the
+             * damage is drawn bigger, the level's arrow is resized), so the gaps between those rows differed. The letters,
+             * capitals' top to baseline, are put in the middle of the row, which makes the rows evenly spaced.
+             */
+            float top = float.MinValue, bottom = float.MaxValue;
+            foreach (Text text in new[] { hasTitle ? title : null, hasValue ? value : null })
+            {
+                if (text != null && SkillBarNames.LettersSpan(text, out float textTop, out float textBottom))
+                {
+                    top = Mathf.Max(top, textTop);
+                    bottom = Mathf.Min(bottom, textBottom);
+                }
+            }
+            float up = top > bottom ? (corners[0].y + corners[1].y) / 2f - (top + bottom) / 2f : 0f;
+            //Within the row, a bigger move is a measure gone wrong
+            if (Mathf.Abs(up) > corners[1].y - corners[0].y)
+            {
+                up = 0f;
+            }
+
             //The game puts both texts back at their place every time the row is set, so the move does not add up
             foreach (Text text in new[] { hasTitle ? title : null, hasValue ? value : null })
             {
                 RectTransform rect = text != null ? text.rectTransform : null;
                 if (rect != null && rect.parent != null)
                 {
-                    rect.anchoredPosition += new Vector2(rect.parent.InverseTransformVector(new Vector3(shift, 0f, 0f)).x, 0f);
+                    Vector3 local = rect.parent.InverseTransformVector(new Vector3(shift, up, 0f));
+                    rect.anchoredPosition += new Vector2(local.x, local.y);
                 }
             }
         }
