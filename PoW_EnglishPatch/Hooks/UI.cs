@@ -4740,9 +4740,23 @@ namespace EnglishPatch.Hooks
                 value.fontSize = TitleSize;
             }
 
-            //"Str +" and its "7" stood at the two ends of the row: the number follows the name after a space
+            //"Str +" and its "7" stood at the two ends of the row: the number follows the name after a space, in the name's
+            //size and on the name's baseline
             if (type == WGTip.TipType.TitleImportantValue && hasTitle && hasValue)
             {
+                if (value.fontSize > 0 && value.fontSize != title.fontSize)
+                {
+                    value.text = TextUtil.ScaleSizeTags(value.text, (float)title.fontSize / value.fontSize);
+                    value.fontSize = title.fontSize;
+                }
+                if (value.rectTransform.parent != null
+                    && SkillBarNames.LettersSpan(title, out float _, out float titleBase)
+                    && SkillBarNames.LettersSpan(value, out float _, out float valueBase)
+                    && Mathf.Abs(titleBase - valueBase) < Mathf.Abs(title.rectTransform.TransformVector(new Vector3(0f, title.fontSize, 0f)).y))
+                {
+                    value.rectTransform.anchoredPosition += new Vector2(0f, value.rectTransform.parent.InverseTransformVector(new Vector3(0f, titleBase - valueBase, 0f)).y);
+                }
+
                 float titleLeft = float.MaxValue, titleRight = float.MinValue, valueLeft = float.MaxValue, valueRight = float.MinValue;
                 if (InkX(title, ref titleLeft, ref titleRight) && InkX(value, ref valueLeft, ref valueRight) && value.rectTransform.parent != null)
                 {
