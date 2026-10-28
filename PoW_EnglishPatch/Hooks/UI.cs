@@ -3572,14 +3572,15 @@ namespace EnglishPatch.Hooks
     /*
      * Refine Medicine: the master's speech bubble broke in the middle of words ("It / 's a hassle", the game turns the spaces
      * into non-breaking spaces). It wraps at spaces again and shrinks if it would not fit the bubble.
-     * The text area was narrower than the bubble and nearer its left side: it now spans the bubble with Margin on both
-     * sides, and the lines are justified, so both margins are straight and the same.
+     * The text area was nearer the bubble's left side: its right edge moves right so both margins are the same, and the
+     * lines are justified, so both margins are straight.
      */
     [HarmonyPatch(typeof(WGElixirIntroduction), "UpdateWidget", new[] { typeof(ElixirIntroductionInfo) })]
     public class WGElixirIntroduction_UpdateWidget_Hook
     {
         private const int MinSize = 14;
-        private const float Margin = 22f;
+        //The text ended 35 from the bubble's right edge and started 22 from its left edge (1920x1080)
+        private const float RightExtend = 13f;
 
         //The text area of the prefab (left and right edges), the bubble is shown again and again
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2[]> _Original = new System.Collections.Generic.Dictionary<RectTransform, Vector2[]>();
@@ -3606,45 +3607,9 @@ namespace EnglishPatch.Hooks
                 original = new[] { rect.offsetMin, rect.offsetMax };
                 _Original[rect] = original;
             }
+            //The game's left edge, the right edge moved right so both margins in the bubble are the same
             rect.offsetMin = original[0];
-            rect.offsetMax = original[1];
-
-            RectTransform bubble = WGTalentItem_UpdateWidget_Hook.BoxOf(text);
-            if (bubble == rect || rect.parent == null)
-            {
-                return;
-            }
-            /*
-             * Edges compared in the space of the text's parent, where the offsets are: the bubble can be drawn mirrored (its
-             * tail on the other side), then its world corners are swapped and left and right would be mixed up.
-             */
-            Transform space = rect.parent;
-            EdgesIn(space, bubble, out float boxLeft, out float boxRight);
-            EdgesIn(space, rect, out float textLeft, out float textRight);
-            float left = boxLeft + Margin - textLeft;
-            float right = boxRight - Margin - textRight;
-            //Only ever wider, and a bubble far bigger than the text is not its bubble
-            if (left > 0f || right < 0f || -left > rect.rect.width || right > rect.rect.width)
-            {
-                return;
-            }
-            rect.offsetMin = new Vector2(original[0].x + left, original[0].y);
-            rect.offsetMax = new Vector2(original[1].x + right, original[1].y);
-        }
-
-        //Left and right edges of a rect in the given space
-        private static void EdgesIn(Transform space, RectTransform rect, out float left, out float right)
-        {
-            Vector3[] corners = new Vector3[4];
-            rect.GetWorldCorners(corners);
-            left = float.MaxValue;
-            right = float.MinValue;
-            foreach (Vector3 corner in corners)
-            {
-                float x = space.InverseTransformPoint(corner).x;
-                left = Mathf.Min(left, x);
-                right = Mathf.Max(right, x);
-            }
+            rect.offsetMax = new Vector2(original[1].x + RightExtend, original[1].y);
         }
     }
 
@@ -4750,7 +4715,7 @@ namespace EnglishPatch.Hooks
          * heading ("Middle of Month Bonus") sat to one side of the tip while its headings are centered. Their drawn letters,
          * name and value together, are put in the middle of the tip. Rows with a name and a value ("Energy -12") stay.
          */
-        private const float DamageRaise = 2f;
+        private const float DamageRaise = 4f;
 
         private static void CenterTrainingRow(WGTitleValue row, WGTip.TipType type)
         {
@@ -4793,8 +4758,9 @@ namespace EnglishPatch.Hooks
             {
                 up = 0f;
             }
-            //The damage row's bigger red letters looked a little low next to the others even in the middle of their row
-            if (type == WGTip.TipType.TitleImportantValue)
+            //The damage row's bigger red letters ("Damage 271 → 271") looked low next to the others even in the middle of
+            //their row, the gap below them seemed smaller. Known by its arrow with a name (the level row has no name).
+            if (hasTitle && ((title.text ?? "") + (hasValue ? value.text : "")).IndexOf('→') >= 0)
             {
                 up += Mathf.Abs(row.transform.TransformVector(new Vector3(0f, DamageRaise, 0f)).y);
             }
