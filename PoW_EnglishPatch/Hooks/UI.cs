@@ -4814,8 +4814,7 @@ namespace EnglishPatch.Hooks
                     value.text = System.Text.RegularExpressions.Regex.Replace(value.text, "</?i>", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                 }
                 if (value.rectTransform.parent != null
-                    && SkillBarNames.LettersSpan(title, out float _, out float titleBase)
-                    && SkillBarNames.LettersSpan(value, out float _, out float valueBase)
+                    && Baseline(title, out float titleBase) && Baseline(value, out float valueBase)
                     && Mathf.Abs(titleBase - valueBase) < Mathf.Abs(title.rectTransform.TransformVector(new Vector3(0f, title.fontSize, 0f)).y))
                 {
                     value.rectTransform.anchoredPosition += new Vector2(0f, value.rectTransform.parent.InverseTransformVector(new Vector3(0f, titleBase - valueBase, 0f)).y);
@@ -4876,6 +4875,33 @@ namespace EnglishPatch.Hooks
                     rect.anchoredPosition += new Vector2(local.x, local.y);
                 }
             }
+        }
+
+        /*
+         * World height of the line a one line text is written on: the bottom of its drawn letters when none of them goes
+         * below the line (digits, "Str +"), which is exact, else measured from the font's capitals.
+         */
+        private static bool Baseline(Text text, out float baseline)
+        {
+            baseline = 0f;
+            string plain = System.Text.RegularExpressions.Regex.Replace(text.text ?? "", "<[^>]*>", "");
+            if (plain.IndexOfAny(new[] { 'g', 'j', 'p', 'q', 'y', ',', ';', '(', ')', '[', ']', '{', '}', '/', '|' }) >= 0)
+            {
+                return SkillBarNames.LettersSpan(text, out float _, out baseline);
+            }
+            RectTransform rect = text.rectTransform;
+            _Generator.Populate(text.text, TextUtil.Measuring(text, rect.rect.size));
+            if (_Generator.vertexCount == 0 || text.pixelsPerUnit <= 0f)
+            {
+                return false;
+            }
+            float bottom = float.MaxValue;
+            foreach (UIVertex vert in _Generator.verts)
+            {
+                bottom = Mathf.Min(bottom, vert.position.y);
+            }
+            baseline = rect.TransformPoint(new Vector3(0f, bottom / text.pixelsPerUnit, 0f)).y;
+            return true;
         }
 
         //Widens left..right (world) with the drawn letters of a text, false when nothing is drawn
