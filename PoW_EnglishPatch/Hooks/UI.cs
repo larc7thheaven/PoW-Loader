@@ -4776,8 +4776,28 @@ namespace EnglishPatch.Hooks
          * name and value together, are put in the middle of the tip. Rows with a name and a value ("Energy -12") stay.
          */
         private const float DamageRaise = 4f;
-        //Size the headings of tips are drawn in (WGTitleValue_TitleFormat_Hook)
-        private const int TitleSize = 24;
+        //Every text of the training tip is drawn in this size (see TrainingSize)
+        private const int TitleSize = 21;
+
+        /*
+         * The training tip (main life screen) mixed sizes 20 to 36 (headings, names, values, lines with their own size tag).
+         * Every text and size tag gets TitleSize; the arrows of the level and damage changes, drawn bigger on purpose,
+         * keep that much bigger.
+         */
+        private static readonly System.Text.RegularExpressions.Regex _SizeTag = new System.Text.RegularExpressions.Regex(@"<size=(\d+(?:\.\d+)?)>(\s*→)?");
+
+        private static void TrainingSize(Text text)
+        {
+            if (text == null || string.IsNullOrEmpty(text.text) || text.fontSize <= 0)
+            {
+                return;
+            }
+            float scale = (float)TitleSize / text.fontSize;
+            text.text = _SizeTag.Replace(text.text, m => m.Groups[2].Success
+                ? "<size=" + Mathf.Max(1, Mathf.RoundToInt(float.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) * scale)) + ">" + m.Groups[2].Value
+                : "<size=" + TitleSize + ">");
+            text.fontSize = TitleSize;
+        }
 
         private static void CenterTrainingRow(WGTitleValue row, WGTip.TipType type)
         {
@@ -4922,6 +4942,11 @@ namespace EnglishPatch.Hooks
 
         public static void Postfix(WGTitleValue titlevalue, WGTip.TipType type)
         {
+            if (titlevalue != null && TextUtil.OwningForm(titlevalue) is UINurturance)
+            {
+                TrainingSize(titlevalue.Title);
+                TrainingSize(titlevalue.Value);
+            }
             if (titlevalue != null && (type == WGTip.TipType.Title || type == WGTip.TipType.BigTitle || type == WGTip.TipType.VeryBigTitle))
             {
                 OneLineTitle(titlevalue.Title);
