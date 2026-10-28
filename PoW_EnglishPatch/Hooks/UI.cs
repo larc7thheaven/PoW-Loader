@@ -3572,17 +3572,13 @@ namespace EnglishPatch.Hooks
     /*
      * Refine Medicine: the master's speech bubble broke in the middle of words ("It / 's a hassle", the game turns the spaces
      * into non-breaking spaces). It wraps at spaces again and shrinks if it would not fit the bubble.
-     * The text area was nearer the bubble's left side: its right edge moves right so both margins are the same, and the
-     * lines are justified, so both margins are straight.
+     * The text area was nearer the bubble's left side: it is placed with the same gap on both sides, and the lines are
+     * justified, so both margins are straight.
      */
     [HarmonyPatch(typeof(WGElixirIntroduction), "UpdateWidget", new[] { typeof(ElixirIntroductionInfo) })]
     public class WGElixirIntroduction_UpdateWidget_Hook
     {
         private const int MinSize = 14;
-        //The text ended 35 from the bubble's right edge and started 22 from its left edge (1920x1080)
-        private const float RightExtend = 13f;
-        //Then the lines started 9 from the bubble's left edge and ended 23 from its right edge
-        private const float ShiftRight = 7f;
 
         //The text area of the prefab (left and right edges), the bubble is shown again and again
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2[]> _Original = new System.Collections.Generic.Dictionary<RectTransform, Vector2[]>();
@@ -3601,17 +3597,47 @@ namespace EnglishPatch.Hooks
             TextUtil.Justify(text);
         }
 
+        /*
+         * The bubble's edges on a 1920x1080 screen (left 1283, right 1708), the text kept Gap inside both. Measured on the
+         * screen rather than from the game's text area, whose edges changed from one message to the next. The area gets
+         * that width and its pivot is moved so its edges land there at the position the game gives it.
+         */
+        private const float BubbleLeft = 1283f, BubbleRight = 1708f, Gap = 32f, ReferenceWidth = 1920f;
+
         private static void SpanBubble(Text text)
         {
             RectTransform rect = text.rectTransform;
             if (!_Original.TryGetValue(rect, out Vector2[] original))
             {
-                original = new[] { rect.offsetMin, rect.offsetMax };
+                original = new[] { rect.sizeDelta, rect.pivot };
                 _Original[rect] = original;
             }
-            //Wider to the right, and the whole area moved right so both margins in the bubble are the same
-            rect.offsetMin = new Vector2(original[0].x + ShiftRight, original[0].y);
-            rect.offsetMax = new Vector2(original[1].x + RightExtend + ShiftRight, original[1].y);
+            rect.sizeDelta = original[0];
+            rect.pivot = original[1];
+
+            Canvas canvas = text.canvas != null ? text.canvas.rootCanvas : null;
+            Transform space = rect.parent;
+            if (canvas == null || space == null)
+            {
+                return;
+            }
+            //Screen points of the wanted edges, as world positions along the canvas
+            Vector3[] screen = new Vector3[4];
+            ((RectTransform)canvas.transform).GetWorldCorners(screen);
+            float Along(float x) => Mathf.Lerp(screen[0].x, screen[2].x, x / ReferenceWidth);
+            float left = space.InverseTransformPoint(new Vector3(Along(BubbleLeft + Gap), rect.position.y, rect.position.z)).x;
+            float right = space.InverseTransformPoint(new Vector3(Along(BubbleRight - Gap), rect.position.y, rect.position.z)).x;
+            if (right <= left)
+            {
+                return;
+            }
+
+            //Where the pivot is in the parent, then a width and pivot that put the edges at left and right from there
+            float scale = Mathf.Abs(rect.localScale.x) > 0.0001f ? Mathf.Abs(rect.localScale.x) : 1f;
+            float pivotX = space.InverseTransformPoint(rect.position).x;
+            float width = (right - left) / scale;
+            rect.sizeDelta = new Vector2(rect.sizeDelta.x + width - rect.rect.width, rect.sizeDelta.y);
+            rect.pivot = new Vector2((pivotX - left) / (right - left), rect.pivot.y);
         }
     }
 
