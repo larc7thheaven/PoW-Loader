@@ -5142,8 +5142,14 @@ namespace EnglishPatch.Hooks
         //The screen is created once, so its texts only need to be searched the first time
         private static UINurturance _Translated;
 
-        public static void Postfix(UINurturance __instance)
+        public static void Postfix(UINurturance __instance, Text ___Money)
         {
+            //The money in the top right corner is Arial in the prefab (not the game's font), it gets the English font too
+            if (___Money != null && TextUtil.UIFont != null)
+            {
+                ___Money.font = TextUtil.UIFont;
+            }
+
             if (_Translated == __instance)
             {
                 return;
