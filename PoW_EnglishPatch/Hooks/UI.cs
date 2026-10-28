@@ -3535,16 +3535,65 @@ namespace EnglishPatch.Hooks
         }
     }
 
-    //Refine Medicine: the master's speech bubble broke in the middle of words ("It / 's a hassle", the game turns the spaces
-    //into non-breaking spaces). It wraps at spaces again and shrinks if it would not fit the bubble.
+    /*
+     * Refine Medicine: the master's speech bubble broke in the middle of words ("It / 's a hassle", the game turns the spaces
+     * into non-breaking spaces). It wraps at spaces again and shrinks if it would not fit the bubble.
+     * The text area was narrower than the bubble and nearer its left side: it now spans the bubble with Margin on both
+     * sides, and the lines are justified, so both margins are straight and the same.
+     */
     [HarmonyPatch(typeof(WGElixirIntroduction), "UpdateWidget", new[] { typeof(ElixirIntroductionInfo) })]
     public class WGElixirIntroduction_UpdateWidget_Hook
     {
         private const int MinSize = 14;
+        private const float Margin = 22f;
+
+        //The text area of the prefab (left and right edges), the bubble is shown again and again
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2[]> _Original = new System.Collections.Generic.Dictionary<RectTransform, Vector2[]>();
 
         public static void Postfix(WGText ___talk)
         {
-            TextUtil.ShrinkToBox(TextUtil.TextOf(___talk), MinSize);
+            Text text = TextUtil.TextOf(___talk);
+            if (text == null)
+            {
+                return;
+            }
+            SpanBubble(text);
+            TextUtil.ShrinkToBox(text, MinSize);
+            //Justified lines need the text aligned to the left (same height in the bubble as before)
+            text.alignment = (TextAnchor)((int)text.alignment / 3 * 3);
+            TextUtil.Justify(text);
+        }
+
+        private static void SpanBubble(Text text)
+        {
+            RectTransform rect = text.rectTransform;
+            if (!_Original.TryGetValue(rect, out Vector2[] original))
+            {
+                original = new[] { rect.offsetMin, rect.offsetMax };
+                _Original[rect] = original;
+            }
+            rect.offsetMin = original[0];
+            rect.offsetMax = original[1];
+
+            RectTransform bubble = WGTalentItem_UpdateWidget_Hook.BoxOf(text);
+            if (bubble == rect || rect.parent == null)
+            {
+                return;
+            }
+            Vector3[] box = new Vector3[4];
+            bubble.GetWorldCorners(box);
+            Vector3[] own = new Vector3[4];
+            rect.GetWorldCorners(own);
+            float margin = Mathf.Abs(rect.TransformVector(new Vector3(Margin, 0f, 0f)).x);
+            float left = rect.parent.InverseTransformVector(new Vector3(box[0].x + margin - own[0].x, 0f, 0f)).x;
+            float right = rect.parent.InverseTransformVector(new Vector3(box[2].x - margin - own[2].x, 0f, 0f)).x;
+            //A bubble found far bigger than the text is not its bubble
+            if (Mathf.Abs(left) > rect.rect.width || Mathf.Abs(right) > rect.rect.width)
+            {
+                return;
+            }
+            rect.offsetMin = new Vector2(original[0].x + left, original[0].y);
+            rect.offsetMax = new Vector2(original[1].x + right, original[1].y);
         }
     }
 
