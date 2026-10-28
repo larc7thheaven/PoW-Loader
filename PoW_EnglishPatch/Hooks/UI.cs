@@ -999,6 +999,23 @@ namespace EnglishPatch.Hooks
             rect.anchoredPosition = origin + new Vector2(MedicineShift, 0f);
         }
 
+        /*
+         * "Internal Arts" and "Special Skill" (the headings of the Skills tab) are two short lines, the gap between them was
+         * as wide as for a much bigger text. Their lines are drawn closer.
+         */
+        private const float TwoLineSpacing = 0.75f;
+        private static readonly System.Text.RegularExpressions.Regex _Tags = new System.Text.RegularExpressions.Regex("<[^>]*>");
+
+        private static void TightTwoLines(Text text)
+        {
+            string plain = _Tags.Replace(text.text ?? "", " ");
+            plain = System.Text.RegularExpressions.Regex.Replace(plain, @"\s+", " ").Trim();
+            if (plain.Equals("Internal Arts", System.StringComparison.OrdinalIgnoreCase) || plain.Equals("Special Skill", System.StringComparison.OrdinalIgnoreCase))
+            {
+                text.lineSpacing = TwoLineSpacing;
+            }
+        }
+
         //Size the game gave each of those labels, they may be updated more than once
         private static readonly System.Collections.Generic.Dictionary<Text, int> _OriginalSize = new System.Collections.Generic.Dictionary<Text, int>();
 
@@ -1019,6 +1036,7 @@ namespace EnglishPatch.Hooks
             }
 
             WgBattleRound_UpdateRound_Hook.LabelChanged(text);
+            TightTwoLines(text);
             SaveLoadTab.Fit(text, ___id);
             PawnshopTabs.Fit(text);
             FitMedicineTab(text, ___id);
