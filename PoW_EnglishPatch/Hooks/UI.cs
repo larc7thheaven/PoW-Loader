@@ -4865,11 +4865,6 @@ namespace EnglishPatch.Hooks
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _GamePosition = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
         private static readonly System.Collections.Generic.Dictionary<WGTitleValue, WGTip.TipType> _RowType = new System.Collections.Generic.Dictionary<WGTitleValue, WGTip.TipType>();
 
-        /*
-         * Places the whole training tip from where the game put its texts: each row centered (CenterTrainingRow), then the
-         * rows moved up or down so the gaps between their drawn letters (capitals' top to baseline) are all the same, the
-         * first and last rows staying where they are. The level row sat lower and the damage row higher than the others.
-         */
         //The Socialize tip keeps the size 20 the English texts have elsewhere
         private const int SocialSize = 20;
         private const int SocialMinSize = 14;
@@ -4880,6 +4875,11 @@ namespace EnglishPatch.Hooks
         {
             Text title = row.Title;
             if (title == null || !_GameText.TryGetValue(title, out string game) || string.IsNullOrEmpty(game))
+            {
+                return;
+            }
+            //Placed again every frame for a moment: a row already made from this text is left as it is
+            if (_SocialDone.TryGetValue(title, out string[] done) && done[0] == game && done[1] == title.text)
             {
                 return;
             }
@@ -4906,8 +4906,17 @@ namespace EnglishPatch.Hooks
             {
                 row.Value.fontSize = SocialSize;
             }
+            _SocialDone[title] = new[] { game, title.text };
         }
 
+        private static readonly System.Collections.Generic.Dictionary<Text, string[]> _SocialDone = new System.Collections.Generic.Dictionary<Text, string[]>();
+
+        /*
+         * Places a whole tip of the life screen from where the game put its texts, the first and last rows staying where
+         * they are. Training tip: each row centered (CenterTrainingRow), rows evenly spaced by the tops of their letters.
+         * Socialize tip: a paragraph from one left margin (SocialRow), its first line centered, rows evenly spaced by the
+         * gaps between their letters.
+         */
         private static void PlaceTrainingTip(WGTip tip)
         {
             if (tip == null || !tip.isActiveAndEnabled)
@@ -4949,6 +4958,40 @@ namespace EnglishPatch.Hooks
                 rows.Add(row);
             }
 
+            //Socialize: every line starts where the first one does ("Relationship Lv 4" started further left than the rest)
+            if (social)
+            {
+                float start = float.NaN;
+                foreach (WGTitleValue row in rows)
+                {
+                    Text title = row.Title;
+                    float left = float.MaxValue, right = float.MinValue;
+                    if (title == null || !title.isActiveAndEnabled || string.IsNullOrEmpty(title.text) || !InkX(title, ref left, ref right))
+                    {
+                        continue;
+                    }
+                    if (float.IsNaN(start))
+                    {
+                        //The other lines keep this start; the first line itself ("Relationship Lv 4...") goes in the middle
+                        start = left;
+                        Vector3[] edges = new Vector3[4];
+                        ((RectTransform)row.transform).GetWorldCorners(edges);
+                        float middle = (edges[0].x + edges[2].x) / 2f - (left + right) / 2f;
+                        RectTransform first = title.rectTransform;
+                        if (first.parent != null && Mathf.Abs(middle) < first.rect.width / 2f)
+                        {
+                            first.anchoredPosition += new Vector2(first.parent.InverseTransformVector(new Vector3(middle, 0f, 0f)).x, 0f);
+                        }
+                        continue;
+                    }
+                    RectTransform rect = title.rectTransform;
+                    if (rect.parent != null && Mathf.Abs(start - left) < rect.rect.width / 4f)
+                    {
+                        rect.anchoredPosition += new Vector2(rect.parent.InverseTransformVector(new Vector3(start - left, 0f, 0f)).x, 0f);
+                    }
+                }
+            }
+
             //Top and bottom of each row's letters
             var tops = new System.Collections.Generic.List<float>();
             var bottoms = new System.Collections.Generic.List<float>();
@@ -4959,8 +5002,17 @@ namespace EnglishPatch.Hooks
                 var shown = new System.Collections.Generic.List<Text>();
                 foreach (Text text in new[] { row.Title, row.Value })
                 {
-                    if (text != null && text.isActiveAndEnabled && !string.IsNullOrEmpty(text.text)
-                        && SkillBarNames.LettersSpan(text, out float textTop, out float textBottom))
+                    if (text == null || !text.isActiveAndEnabled || string.IsNullOrEmpty(text.text))
+                    {
+                        continue;
+                    }
+                    //The training tip is spaced by the tops of its letters below, only the Socialize tip needs the spans
+                    if (!social)
+                    {
+                        shown.Add(text);
+                        top = bottom = 0f;
+                    }
+                    else if (SkillBarNames.LettersSpan(text, out float textTop, out float textBottom))
                     {
                         top = Mathf.Max(top, textTop);
                         bottom = Mathf.Min(bottom, textBottom);
@@ -4977,6 +5029,50 @@ namespace EnglishPatch.Hooks
             int count = tops.Count;
             if (count < 3)
             {
+                return;
+            }
+
+            /*
+             * The training tip: every row is one line in the same size, so equal steps between the tops of their capitals and
+             * digits give equal gaps. Measured on the drawn letters without the enlarged arrows, whose taller line put the
+             * level and damage rows off when measured from the line.
+             */
+            if (!social)
+            {
+                var capTops = new float[count];
+                for (int i = 0; i < count; i++)
+                {
+                    float top = float.MinValue;
+                    foreach (Text text in texts[i])
+                    {
+                        if (CapsTop(text, out float textTop))
+                        {
+                            top = Mathf.Max(top, textTop);
+                        }
+                    }
+                    if (top == float.MinValue)
+                    {
+                        return;
+                    }
+                    capTops[i] = top;
+                }
+                float step = (capTops[0] - capTops[count - 1]) / (count - 1);
+                if (step <= 0f)
+                {
+                    return;
+                }
+                for (int i = 1; i < count - 1; i++)
+                {
+                    float move = capTops[0] - i * step - capTops[i];
+                    foreach (Text text in texts[i])
+                    {
+                        RectTransform rect = text.rectTransform;
+                        if (rect.parent != null)
+                        {
+                            rect.anchoredPosition += new Vector2(0f, rect.parent.InverseTransformVector(new Vector3(0f, move, 0f)).y);
+                        }
+                    }
+                }
                 return;
             }
             float letters = 0f;
@@ -5129,6 +5225,57 @@ namespace EnglishPatch.Hooks
                     rect.anchoredPosition += new Vector2(local.x, local.y);
                 }
             }
+        }
+
+        //World height of the top of a text's drawn characters, the tallest one left out when the text has an enlarged arrow
+        private static bool CapsTop(Text text, out float top)
+        {
+            top = 0f;
+            RectTransform rect = text.rectTransform;
+            _Generator.Populate(text.text, TextUtil.Measuring(text, rect.rect.size));
+            System.Collections.Generic.IList<UIVertex> verts = _Generator.verts;
+            if (verts.Count < 4 || text.pixelsPerUnit <= 0f)
+            {
+                return false;
+            }
+            var tops = new System.Collections.Generic.List<float>();
+            float tallest = 0f;
+            int tallestIndex = -1;
+            for (int i = 0; i + 3 < verts.Count; i += 4)
+            {
+                float low = float.MaxValue, high = float.MinValue;
+                for (int k = 0; k < 4; k++)
+                {
+                    low = Mathf.Min(low, verts[i + k].position.y);
+                    high = Mathf.Max(high, verts[i + k].position.y);
+                }
+                //Spaces and rich text tags draw nothing
+                if (high - low < 0.5f)
+                {
+                    continue;
+                }
+                if (high - low > tallest)
+                {
+                    tallest = high - low;
+                    tallestIndex = tops.Count;
+                }
+                tops.Add(high);
+            }
+            if (text.text.IndexOf('→') >= 0 && tallestIndex >= 0 && tops.Count > 1)
+            {
+                tops.RemoveAt(tallestIndex);
+            }
+            if (tops.Count == 0)
+            {
+                return false;
+            }
+            float max = float.MinValue;
+            foreach (float t in tops)
+            {
+                max = Mathf.Max(max, t);
+            }
+            top = rect.TransformPoint(new Vector3(0f, max / text.pixelsPerUnit, 0f)).y;
+            return true;
         }
 
         //Widens left..right (world) with the drawn letters of a text, false when nothing is drawn
