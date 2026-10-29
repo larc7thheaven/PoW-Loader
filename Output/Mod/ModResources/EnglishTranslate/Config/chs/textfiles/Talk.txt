@@ -16808,6 +16808,7 @@ t6000000_350		0	1	(One year for the saber, ten years for the sword, a hundred ye
 t6000000_360		0	1	(An inch shorter, an inch more dangerous; an inch smaller, an inch more skillful.)		0	t6000000_306		0	0
 t6000000_370		0	1	(A torrential downpour of pear blossoms, the Buddha's wrath and the red lotus, Guanyin's tears.)		0	t6000000_307		0	0
 t6000000_380		0	1	(Studying the healing arts, aspiring to restore health with a master's touch.)		0	t6000000_308		0	0
+t6000000_390		0	1	(Two blades, one heart; where one parries, the other strikes.)		0	t6000000_306		0	0
 t6020000_000	in0105	0	0	...Hmph.		0			0	0
 t6020000_001	in0105	0	0	{name_1} {name_2}, do you think you can make progress just by lifting a stone?		0			0	0
 t6020000_002	in0105	0	0	Unfortunately, you are still so weak!		0			0	0

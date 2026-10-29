@@ -3312,3 +3312,5 @@ io549279	Combat Seventh Order Blood Wolf Wood	Remarks	io549279	in93004	False		0.
 io549289	Combat Eighth Order Blood Wolf Wood	Remarks	io549289	in93004	False		0.5
 io549299	Combat Ninth Order Blood Wolf Wood	Remarks	io549299	in93004	False		0.5
 io5492a9	Combat a-rank blood wolf wood	Remarks	io5492a9	in93004	False		0.5
+in0199_081	Fake actor (twin blades)		in0199_081	in0101	False	in0199_081_01	0.5
+in0198_081	Fake heroine (twin blades)		in0199_081	in0115	False	in0198_081_01	0.5
