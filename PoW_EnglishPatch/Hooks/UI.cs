@@ -4136,13 +4136,19 @@ namespace EnglishPatch.Hooks
                 return;
             }
             ResetLayout(name);
-            float? nameMiddle = VisualMiddle(name);
-            float? titleMiddle = VisualMiddle(title);
-            if (nameMiddle == null || titleMiddle == null || rect.parent == null)
+            //On the same line as "Traits": the baselines lined up (the name is smaller, so their middles differ)
+            if (rect.parent == null || !SkillBarNames.LettersSpan(name, out float _, out float nameBase)
+                || !SkillBarNames.LettersSpan(title, out float _, out float titleBase))
             {
                 return;
             }
-            Shift(name, rect.parent.InverseTransformVector(new Vector3(0f, titleMiddle.Value - nameMiddle.Value, 0f)).y);
+            float shift = titleBase - nameBase;
+            //A move bigger than the name itself is a measure gone wrong
+            if (Mathf.Abs(shift) > Mathf.Abs(rect.TransformVector(new Vector3(0f, rect.rect.height, 0f)).y))
+            {
+                return;
+            }
+            Shift(name, rect.parent.InverseTransformVector(new Vector3(0f, shift, 0f)).y);
         }
 
         //The title found for each name, the items are reused so it is looked for once
@@ -4195,40 +4201,6 @@ namespace EnglishPatch.Hooks
                 }
             }
             return best;
-        }
-
-        //World height of the middle between the capitals band and the lower case band of a one line text, where it is drawn
-        private static float? VisualMiddle(Text text)
-        {
-            RectTransform rect = text.rectTransform;
-            TextGenerationSettings settings = TextUtil.Measuring(text, rect.rect.size);
-            settings.horizontalOverflow = HorizontalWrapMode.Overflow;
-            settings.verticalOverflow = VerticalWrapMode.Overflow;
-            settings.richText = false;
-            float? caps = LetterMiddle("H", settings, text.pixelsPerUnit);
-            float? lower = LetterMiddle("x", settings, text.pixelsPerUnit);
-            if (caps == null || lower == null)
-            {
-                return null;
-            }
-            return rect.TransformPoint(new Vector3(0f, (caps.Value + lower.Value) / 2f, 0f)).y;
-        }
-
-        private static float? LetterMiddle(string letter, TextGenerationSettings settings, float pixelsPerUnit)
-        {
-            _Generator.Populate(letter, settings);
-            System.Collections.Generic.IList<UIVertex> verts = _Generator.verts;
-            if (verts.Count < 4 || pixelsPerUnit <= 0f)
-            {
-                return null;
-            }
-            float bottom = float.MaxValue, top = float.MinValue;
-            for (int i = 0; i < 4; i++)
-            {
-                bottom = Mathf.Min(bottom, verts[i].position.y);
-                top = Mathf.Max(top, verts[i].position.y);
-            }
-            return (bottom + top) / 2f / pixelsPerUnit;
         }
 
         /*
@@ -4608,6 +4580,109 @@ namespace EnglishPatch.Hooks
         }
     }
 
+    /*
+     * Puts a text's first line on the same line as a label next to it (their baselines lined up), always from where the
+     * game put the text, so placing again does not add up. A move bigger than the label is a measure gone wrong.
+     */
+    internal static class SameLine
+    {
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Origin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+
+        //Remembers where the game puts the text, the first time (the game does not move these texts, a later snapshot
+        //would include our own move), the placing always starts from there
+        public static void Keep(Text text)
+        {
+            if (text != null && !_Origin.ContainsKey(text.rectTransform))
+            {
+                TextUtil.Prune(_Origin);
+                _Origin[text.rectTransform] = text.rectTransform.anchoredPosition;
+            }
+        }
+
+        public static void Align(Text text, Text label, float limitScale = 1.5f)
+        {
+            if (text == null || label == null || !text.isActiveAndEnabled || !label.isActiveAndEnabled
+                || string.IsNullOrEmpty(text.text) || string.IsNullOrEmpty(label.text))
+            {
+                return;
+            }
+            RectTransform rect = text.rectTransform;
+            if (_Origin.TryGetValue(rect, out Vector2 origin))
+            {
+                rect.anchoredPosition = origin;
+            }
+            if (rect.parent == null || !SkillBarNames.FirstBaseline(text, out float textBase) || !SkillBarNames.FirstBaseline(label, out float labelBase))
+            {
+                return;
+            }
+            float move = labelBase - textBase;
+            float limit = Mathf.Abs(label.rectTransform.TransformVector(new Vector3(0f, label.fontSize * limitScale, 0f)).y);
+            if (Mathf.Abs(move) > limit)
+            {
+                return;
+            }
+            rect.anchoredPosition += new Vector2(0f, rect.parent.InverseTransformVector(new Vector3(0f, move, 0f)).y);
+        }
+
+        //The shown text under root reading the given words (tags and spacing left out), null when there is none
+        public static Text Find(Transform root, string words)
+        {
+            string wanted = Plain(words);
+            if (root == null || wanted.Length == 0)
+            {
+                return null;
+            }
+            foreach (Text text in root.GetComponentsInChildren<Text>())
+            {
+                if (Plain(text.text).Equals(wanted, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    return text;
+                }
+            }
+            return null;
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex _Tags = new System.Text.RegularExpressions.Regex("<[^>]*>");
+
+        private static string Plain(string text)
+        {
+            return text == null ? "" : _Tags.Replace(text, "").Replace('\u00A0', ' ').Trim();
+        }
+
+        //The label left of a text: the closest text on its left whose area overlaps it top to bottom, under root
+        public static Text LabelLeftOf(Text text, Transform root)
+        {
+            if (text == null || root == null)
+            {
+                return null;
+            }
+            Vector3[] own = new Vector3[4];
+            text.rectTransform.GetWorldCorners(own);
+            Vector3[] corners = new Vector3[4];
+            Text best = null;
+            float bestRight = float.MinValue;
+            foreach (Text other in root.GetComponentsInChildren<Text>())
+            {
+                if (other == text || string.IsNullOrEmpty(other.text))
+                {
+                    continue;
+                }
+                other.rectTransform.GetWorldCorners(corners);
+                float centerX = (corners[0].x + corners[2].x) / 2f;
+                if (centerX >= (own[0].x + own[2].x) / 2f || corners[1].y <= own[0].y || corners[0].y >= own[1].y)
+                {
+                    continue;
+                }
+                if (corners[2].x > bestRight)
+                {
+                    best = other;
+                    bestRight = corners[2].x;
+                }
+            }
+            return best;
+        }
+    }
+
     internal static class SkillBarNames
     {
         private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Origin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
@@ -4734,17 +4809,31 @@ namespace EnglishPatch.Hooks
         //World heights of the top of the capitals of the first line and of the baseline of the last line
         internal static bool LettersSpan(Text text, out float worldTop, out float worldBottom)
         {
-            worldTop = worldBottom = 0f;
+            return Lines(text, out worldTop, out worldBottom, out float _);
+        }
+
+        //World height of the baseline of a text's first line (the one to line up with a label next to it)
+        internal static bool FirstBaseline(Text text, out float baseline)
+        {
+            return Lines(text, out float _, out float _, out baseline);
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex _LeadingSize = new System.Text.RegularExpressions.Regex(@"^\s*(?:<color=[^>]*>\s*)?<size=(\d+(?:\.\d+)?)>");
+
+        private static bool Lines(Text text, out float worldTop, out float worldBottom, out float firstBaseline)
+        {
+            worldTop = worldBottom = firstBaseline = 0f;
             RectTransform rect = text.rectTransform;
             if (text.pixelsPerUnit <= 0f)
             {
                 return false;
             }
 
-            //Where an "H" starts and ends below the top of its line
+            //Where an "H" starts and ends below the top of its line, in the size the text starts with ("<size=30>Validity")
             TextGenerationSettings settings = TextUtil.Measuring(text, rect.rect.size);
-            settings.richText = false;
-            _Generator.Populate("H", settings);
+            System.Text.RegularExpressions.Match lead = _LeadingSize.Match(text.text ?? "");
+            settings.richText = lead.Success;
+            _Generator.Populate(lead.Success ? "<size=" + lead.Groups[1].Value + ">H</size>" : "H", settings);
             if (_Generator.verts.Count < 4 || _Generator.lineCount < 1)
             {
                 return false;
@@ -4768,6 +4857,7 @@ namespace EnglishPatch.Hooks
             float bottom = _Generator.lines[count - 1].topY - baseBelowTop;
             worldTop = rect.TransformPoint(new Vector3(0f, top / text.pixelsPerUnit, 0f)).y;
             worldBottom = rect.TransformPoint(new Vector3(0f, bottom / text.pixelsPerUnit, 0f)).y;
+            firstBaseline = rect.TransformPoint(new Vector3(0f, (_Generator.lines[0].topY - baseBelowTop) / text.pixelsPerUnit, 0f)).y;
             return true;
         }
     }
@@ -4981,17 +5071,6 @@ namespace EnglishPatch.Hooks
                 {
                     outcomeY = row.transform.position.y;
                 }
-            }
-            if (LayoutLog.Enabled)
-            {
-                var line = new StringBuilder("Life tip: outcome '" + outcome + "' at " + outcomeY);
-                foreach (WGTitleValue row in all)
-                {
-                    _RowType.TryGetValue(row, out WGTip.TipType logType);
-                    line.Append(" | ").Append(logType).Append(" y ").Append(row.transform.position.y.ToString("F0"))
-                        .Append(" '").Append(row.Title != null ? row.Title.text : "").Append("' '").Append(row.Value != null ? row.Value.text : "").Append("'");
-                }
-                LayoutLog.Once("life tip " + line, line.ToString());
             }
             foreach (WGTitleValue row in all)
             {
@@ -5856,9 +5935,55 @@ namespace EnglishPatch.Hooks
     {
         //The screen is created once, so its texts only need to be searched the first time
         private static UINurturance _Translated;
+        private static System.Collections.Generic.List<Text[]> _Bars;
+        private static UINurturance _BarsOf;
 
-        public static void Postfix(UINurturance __instance, Text ___Money)
+        public static void Postfix(UINurturance __instance, Text ___Money, WGValueRunBar[] ___NurturanceValues, WGEmotionRunBar ___Emotion, Text ___TotalBasicValue)
         {
+            /*
+             * The values of the bars ("330 / 1000") sat lower than their names ("Str"): each value goes on its name's line.
+             * Names and values are looked for once, then placed over the next frames (the screen slides in).
+             */
+            if (_Bars == null || _BarsOf != __instance)
+            {
+                _BarsOf = __instance;
+                _Bars = new System.Collections.Generic.List<Text[]>();
+                var displays = new System.Collections.Generic.List<Component>();
+                foreach (WGValueRunBar bar in ___NurturanceValues ?? new WGValueRunBar[0])
+                {
+                    displays.Add(bar);
+                }
+                displays.Add(___Emotion);
+                foreach (Component bar in displays)
+                {
+                    WGText display = bar == null ? null : Traverse.Create(bar).Field("display").GetValue<WGText>();
+                    Text value = TextUtil.TextOf(display);
+                    Transform root = bar != null && bar.transform.parent != null ? bar.transform.parent : null;
+                    Text label = SameLine.LabelLeftOf(value, root);
+                    if (value != null && label != null)
+                    {
+                        SameLine.Keep(value);
+                        _Bars.Add(new[] { value, label });
+                    }
+                }
+                //"(Total value: 1287)" on the line of the "Stats" heading next to it
+                Text statsLabel = ___TotalBasicValue != null && ___TotalBasicValue.transform.parent != null
+                    ? SameLine.LabelLeftOf(___TotalBasicValue, ___TotalBasicValue.transform.parent.parent ?? ___TotalBasicValue.transform.parent) : null;
+                if (statsLabel != null)
+                {
+                    SameLine.Keep(___TotalBasicValue);
+                    _Bars.Add(new[] { ___TotalBasicValue, statsLabel });
+                }
+            }
+            var bars = _Bars;
+            Replacer.Run(__instance, () =>
+            {
+                foreach (Text[] pair in bars)
+                {
+                    SameLine.Align(pair[0], pair[1]);
+                }
+            });
+
             //The money in the top right corner is Arial in the prefab (not the game's font), it gets the English font too
             if (___Money != null && TextUtil.UIFont != null)
             {
@@ -5919,8 +6044,39 @@ namespace EnglishPatch.Hooks
     {
         private const int MinSize = 14;
 
-        public static void Postfix(WGText[] ___EvaluationReward)
+        public static void Postfix(WGCommissionIntroduction __instance, WGText[] ___EvaluationReward, WGText ___PickUpConditionDescription, WGText ___DeadLine)
         {
+            /*
+             * "Courtesy 380; Daytime" sat under its "Criteria" label: its first line goes on the label's line like the rows
+             * above, from the top, so more criteria take more lines below. The date of "Validity" goes on that word's line.
+             */
+            Text criteria = TextUtil.TextOf(___PickUpConditionDescription);
+            Text deadline = TextUtil.TextOf(___DeadLine);
+            if (criteria != null)
+            {
+                criteria.alignment = (TextAnchor)((int)criteria.alignment % 3);
+                criteria.verticalOverflow = VerticalWrapMode.Overflow;
+                criteria.text = (criteria.text ?? "").Replace('\u00A0', ' ');
+            }
+            SameLine.Keep(criteria);
+            SameLine.Keep(deadline);
+            /*
+             * The labels by their text, on the whole quest screen (the "Criteria" label is not inside this widget), looked
+             * for again while placing: on the first update their English text is not set yet.
+             */
+            Transform screen = TextUtil.OwningForm(__instance) is UIForm form ? form.transform : __instance.transform.root;
+            string criteriaWords = Heluo.Game.Data.Get<StringTable>("SecondaryInterface1713")?.Text;
+            string validityWords = Heluo.Game.Data.Get<StringTable>("SecondaryInterface1715")?.Text;
+            Text criteriaLabel = null, deadlineLabel = null;
+            Replacer.Run(__instance, () =>
+            {
+                if (criteriaLabel == null) criteriaLabel = SameLine.Find(screen, criteriaWords);
+                if (deadlineLabel == null) deadlineLabel = SameLine.Find(screen, validityWords);
+                //Drawn from the top of a tall area, the first line can be far from the label: a bigger move is allowed
+                SameLine.Align(criteria, criteriaLabel, 6f);
+                SameLine.Align(deadline, deadlineLabel);
+            });
+
             if (___EvaluationReward == null)
             {
                 return;
