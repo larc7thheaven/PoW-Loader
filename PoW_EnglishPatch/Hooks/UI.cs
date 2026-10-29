@@ -4872,6 +4872,7 @@ namespace EnglishPatch.Hooks
          */
         //The Socialize tip keeps the size 20 the English texts have elsewhere
         private const int SocialSize = 20;
+        private const int SocialMinSize = 14;
         private static readonly System.Collections.Generic.Dictionary<Text, string> _GameText = new System.Collections.Generic.Dictionary<Text, string>();
 
         //A Socialize tip row from the game's text: size 20, from the left margin, wrapped lines justified, row as high as them
@@ -4887,8 +4888,15 @@ namespace EnglishPatch.Hooks
             title.horizontalOverflow = HorizontalWrapMode.Wrap;
             title.verticalOverflow = VerticalWrapMode.Overflow;
             title.text = _AnySize.Replace(game, "").Replace('\u00A0', ' ');
+            //Two lines at most: the tip's background does not grow, a third line ran out of it. Smaller until it fits.
             _Generator.Populate(title.text, TextUtil.Measuring(title, title.rectTransform.rect.size));
             int lines = _Generator.lineCount;
+            while (lines > 2 && title.fontSize > SocialMinSize)
+            {
+                title.fontSize--;
+                _Generator.Populate(title.text, TextUtil.Measuring(title, title.rectTransform.rect.size));
+                lines = _Generator.lineCount;
+            }
             TextUtil.Justify(title);
             if (lines > 1)
             {
