@@ -6038,11 +6038,146 @@ namespace EnglishPatch.Hooks
         }
     }
 
+    /*
+     * Quest list rows: the time ("2 Turns") ran into the hourglass icon on its left. It shrinks a size at a time (not below
+     * MinSize) until its drawn letters start IconGap right of the icon, and is moved right if that is still not enough.
+     * Always from the size and place the game gives it, the rows are reused.
+     */
+    [HarmonyPatch(typeof(WGCommissionScrollBtn), "UpdateWidget")]
+    public class WGCommissionScrollBtn_UpdateWidget_Hook
+    {
+        private const int MinSize = 14;
+        private const float IconGap = 4f;
+
+        private static readonly AccessTools.FieldRef<WGScrollBtn, WGText> _Remark = AccessTools.FieldRefAccess<WGScrollBtn, WGText>("remark");
+        private static readonly AccessTools.FieldRef<WGScrollBtn, WGImage> _RemarkIcon = AccessTools.FieldRefAccess<WGScrollBtn, WGImage>("remarkIcon");
+        private static readonly System.Collections.Generic.Dictionary<Text, int> _Size = new System.Collections.Generic.Dictionary<Text, int>();
+        private static readonly System.Collections.Generic.Dictionary<RectTransform, Vector2> _Origin = new System.Collections.Generic.Dictionary<RectTransform, Vector2>();
+        private static TextGenerator _Gen;
+        private static TextGenerator _Generator => _Gen ?? (_Gen = new TextGenerator());
+
+        public static void Postfix(WGCommissionScrollBtn __instance)
+        {
+            Text time = TextUtil.TextOf(_Remark(__instance));
+            WGImage iconWidget = _RemarkIcon(__instance);
+            if (time == null || iconWidget == null || string.IsNullOrEmpty(time.text) || time.rectTransform.parent == null)
+            {
+                return;
+            }
+            RectTransform rect = time.rectTransform;
+            if (!_Size.TryGetValue(time, out int size))
+            {
+                TextUtil.Prune(_Size);
+                TextUtil.Prune(_Origin);
+                size = time.fontSize;
+                _Size[time] = size;
+                _Origin[rect] = rect.anchoredPosition;
+            }
+            time.fontSize = size;
+            if (!_Origin.TryGetValue(rect, out Vector2 origin))
+            {
+                origin = rect.anchoredPosition;
+                _Origin[rect] = origin;
+            }
+            rect.anchoredPosition = origin;
+            time.horizontalOverflow = HorizontalWrapMode.Overflow;
+
+            Vector3[] corners = new Vector3[4];
+            ((RectTransform)iconWidget.transform).GetWorldCorners(corners);
+            float limit = Mathf.Max(corners[0].x, corners[2].x) + Mathf.Abs(rect.TransformVector(new Vector3(IconGap, 0f, 0f)).x);
+            float? left = InkLeft(time);
+            while (left != null && left.Value < limit && time.fontSize > MinSize)
+            {
+                time.fontSize--;
+                left = InkLeft(time);
+            }
+            if (left != null && left.Value < limit)
+            {
+                rect.anchoredPosition += new Vector2(rect.parent.InverseTransformVector(new Vector3(limit - left.Value, 0f, 0f)).x, 0f);
+            }
+        }
+
+        //World x where the text's drawn letters start
+        private static float? InkLeft(Text text)
+        {
+            RectTransform rect = text.rectTransform;
+            _Generator.Populate(text.text, TextUtil.Measuring(text, rect.rect.size));
+            if (_Generator.vertexCount == 0 || text.pixelsPerUnit <= 0f)
+            {
+                return null;
+            }
+            float min = float.MaxValue;
+            foreach (UIVertex vert in _Generator.verts)
+            {
+                min = Mathf.Min(min, vert.position.x);
+            }
+            return rect.TransformPoint(new Vector3(min / text.pixelsPerUnit, 0f, 0f)).x;
+        }
+    }
+
     //Quest screen reward rows ("Crimson Phoenix Dex Powder  1 pc"): kept on one line, shrunk until they fit their row
     [HarmonyPatch(typeof(WGCommissionIntroduction), "UpdateWidget")]
     public class WGCommissionIntroduction_UpdateWidget_Hook
     {
         private const int MinSize = 14;
+
+        /*
+         * Several criteria ("All four basic stats 40; participate with Duan Hong'er and Zhong Ruoxin") took three widely
+         * spaced lines and ran over the line under their row. The lines are drawn closer, then smaller if still needed,
+         * until the last one ends above that line (RowLineAbove the "Reward" heading's capitals, at 1920x1080).
+         */
+        private const float RowLineAbove = 20f;
+        private const float MinLineSpacing = 0.85f;
+        private static readonly System.Collections.Generic.Dictionary<Text, int> _CriteriaSize = new System.Collections.Generic.Dictionary<Text, int>();
+
+        private static void FitCriteria(Text criteria, Text label, Text below)
+        {
+            if (criteria == null)
+            {
+                return;
+            }
+            if (!_CriteriaSize.TryGetValue(criteria, out int size))
+            {
+                TextUtil.Prune(_CriteriaSize);
+                size = criteria.fontSize;
+                _CriteriaSize[criteria] = size;
+            }
+            criteria.fontSize = size;
+            criteria.lineSpacing = 1f;
+            //Drawn from the top of a tall area, the first line can be far from the label: a bigger move is allowed
+            SameLine.Align(criteria, label, 6f);
+            if (below == null || !SkillBarNames.LettersSpan(below, out float belowTop, out float _))
+            {
+                return;
+            }
+            float limit = belowTop + Mathf.Abs(below.rectTransform.TransformVector(new Vector3(0f, RowLineAbove, 0f)).y);
+            for (int step = 0; step < 20; step++)
+            {
+                if (!SkillBarNames.LettersSpan(criteria, out float _, out float lastBase))
+                {
+                    return;
+                }
+                //Room for letters going below the line (g, p, y)
+                float descent = Mathf.Abs(criteria.rectTransform.TransformVector(new Vector3(0f, criteria.fontSize * 0.25f, 0f)).y);
+                if (lastBase - descent >= limit)
+                {
+                    return;
+                }
+                if (criteria.lineSpacing > MinLineSpacing)
+                {
+                    criteria.lineSpacing = Mathf.Max(MinLineSpacing, criteria.lineSpacing - 0.05f);
+                }
+                else if (criteria.fontSize > MinSize)
+                {
+                    criteria.fontSize--;
+                }
+                else
+                {
+                    return;
+                }
+                SameLine.Align(criteria, label, 6f);
+            }
+        }
 
         public static void Postfix(WGCommissionIntroduction __instance, WGText[] ___EvaluationReward, WGText ___PickUpConditionDescription, WGText ___DeadLine)
         {
@@ -6067,13 +6202,14 @@ namespace EnglishPatch.Hooks
             Transform screen = TextUtil.OwningForm(__instance) is UIForm form ? form.transform : __instance.transform.root;
             string criteriaWords = Heluo.Game.Data.Get<StringTable>("SecondaryInterface1713")?.Text;
             string validityWords = Heluo.Game.Data.Get<StringTable>("SecondaryInterface1715")?.Text;
-            Text criteriaLabel = null, deadlineLabel = null;
+            string rewardWords = Heluo.Game.Data.Get<StringTable>("SecondaryInterface1714")?.Text;
+            Text criteriaLabel = null, deadlineLabel = null, rewardLabel = null;
             Replacer.Run(__instance, () =>
             {
                 if (criteriaLabel == null) criteriaLabel = SameLine.Find(screen, criteriaWords);
                 if (deadlineLabel == null) deadlineLabel = SameLine.Find(screen, validityWords);
-                //Drawn from the top of a tall area, the first line can be far from the label: a bigger move is allowed
-                SameLine.Align(criteria, criteriaLabel, 6f);
+                if (rewardLabel == null) rewardLabel = SameLine.Find(screen, rewardWords);
+                FitCriteria(criteria, criteriaLabel, rewardLabel);
                 SameLine.Align(deadline, deadlineLabel);
             });
 

@@ -678,7 +678,7 @@ SecondaryInterface1714	传书介面完成奖励	Reward
 SecondaryInterface1715	传书介面期限	<size=30>Validity</size>
 SecondaryInterface1716	传书介面传书分页标题	Quest
 SecondaryInterface1717	传书介面记录分页标题	Record
-SecondaryInterface1718	传书介面任务日程不费时	0 turn
+SecondaryInterface1718	传书介面任务日程不费时	0 Turns
 SecondaryInterface1801	战斗状态介面文本	Inner Arts
 SecondaryInterface1802	战斗状态介面文本	Weapon
 SecondaryInterface1803	战斗状态介面文本	Armor
