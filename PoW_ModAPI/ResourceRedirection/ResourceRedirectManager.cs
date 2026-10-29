@@ -220,9 +220,10 @@ namespace ModAPI
             //Debug.LogError("AssetLoaded: " + context.Parameters.Name);
             if (!_ForceOriginalNextLoad && Path.GetExtension(context.Parameters.Name) == ".prefab")
             {
-                //It is a prefab, we want to check for child GameObjects and replace them if needed
+                //It is a prefab, we want to check for child GameObjects and replace them if needed.
+                //Hidden children too: badges such as the life menu "NEW" are hidden in the prefab and only shown later.
                 GameObject prefab = context.Asset as GameObject;
-                foreach (UnityEngine.UI.Image childImage in prefab.GetComponentsInChildren<UnityEngine.UI.Image>())
+                foreach (UnityEngine.UI.Image childImage in prefab.GetComponentsInChildren<UnityEngine.UI.Image>(true))
                 {
                     //Only plain Images, subclasses manage their sprite themselves
                     if (childImage.GetType() != typeof(UnityEngine.UI.Image) || childImage.sprite == null)
