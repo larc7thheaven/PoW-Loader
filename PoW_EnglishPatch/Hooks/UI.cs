@@ -1000,7 +1000,7 @@ namespace EnglishPatch.Hooks
         }
 
         /*
-         * "Internal Arts" and "Special Skill" (the headings of the Skills tab) are two short lines, the gap between them was
+         * "Martial Arts", "Internal Arts" and "Special Skill" (tab headings) are two short lines, the gap between them was
          * as wide as for a much bigger text. Their lines are drawn closer.
          */
         private const float TwoLineSpacing = 0.75f;
@@ -1011,12 +1011,14 @@ namespace EnglishPatch.Hooks
         {
             //Every label of the game comes through here: only the two headings go on to the regular expressions
             string raw = text.text;
-            if (raw == null || (raw.IndexOf("Internal", System.StringComparison.OrdinalIgnoreCase) < 0 && raw.IndexOf("Special", System.StringComparison.OrdinalIgnoreCase) < 0))
+            if (raw == null || (raw.IndexOf("Internal", System.StringComparison.OrdinalIgnoreCase) < 0 && raw.IndexOf("Special", System.StringComparison.OrdinalIgnoreCase) < 0
+                && raw.IndexOf("Martial", System.StringComparison.OrdinalIgnoreCase) < 0))
             {
                 return;
             }
             string plain = _Spaces.Replace(_Tags.Replace(raw, " "), " ").Trim();
-            if (plain.Equals("Internal Arts", System.StringComparison.OrdinalIgnoreCase) || plain.Equals("Special Skill", System.StringComparison.OrdinalIgnoreCase))
+            if (plain.Equals("Internal Arts", System.StringComparison.OrdinalIgnoreCase) || plain.Equals("Special Skill", System.StringComparison.OrdinalIgnoreCase)
+                || plain.Equals("Martial Arts", System.StringComparison.OrdinalIgnoreCase))
             {
                 text.lineSpacing = TwoLineSpacing;
             }
@@ -4917,6 +4919,38 @@ namespace EnglishPatch.Hooks
          * Socialize tip: a paragraph from one left margin (SocialRow), its first line centered, rows evenly spaced by the
          * gaps between their letters.
          */
+        //A number, maybe signed, maybe inside rich text tags ("<color=...>8</color>")
+        private static readonly System.Text.RegularExpressions.Regex _Number = new System.Text.RegularExpressions.Regex(@"^(\s*(?:<[^>]+>\s*)*)([+-])?\s*(\d+)(\s*(?:<[^>]+>\s*)*)$");
+        private static readonly System.Text.RegularExpressions.Regex _AnyTag = new System.Text.RegularExpressions.Regex("<[^>]*>");
+
+        //Text without tags, with normal spaces, trimmed, for comparing (the game writes non-breaking spaces)
+        private static string Plain(string text)
+        {
+            return text == null ? "" : _AnyTag.Replace(text, "").Replace('\u00A0', ' ').Trim();
+        }
+
+        //"8" becomes "+ 8", "-12" becomes "- 12"; 0 and texts that are not a plain number stay as they are
+        private static void Signed(Text value)
+        {
+            if (value == null || !value.isActiveAndEnabled || string.IsNullOrEmpty(value.text))
+            {
+                return;
+            }
+            System.Text.RegularExpressions.Match m = _Number.Match(value.text.Replace('\u00A0', ' '));
+            if (!m.Success || m.Groups[3].Value.TrimStart('0').Length == 0)
+            {
+                return;
+            }
+            string signed = m.Groups[1].Value + (m.Groups[2].Value == "-" ? "- " : "+ ") + m.Groups[3].Value + m.Groups[4].Value;
+            if (value.text != signed)
+            {
+                value.text = signed;
+            }
+        }
+
+        //Where the top of the last row's letters goes, in row heights above the bottom of the tip (as with a full tip)
+        private const float TurnFromBottom = 1.1f;
+
         private static void PlaceTrainingTip(WGTip tip)
         {
             if (tip == null || !tip.isActiveAndEnabled)
@@ -4938,6 +4972,27 @@ namespace EnglishPatch.Hooks
             }
 
             var rows = new System.Collections.Generic.List<WGTitleValue>();
+            //The rows drawn below the "Activity Outcome" heading (by position, the order of the rows is not the order shown)
+            string outcome = Plain(Heluo.Game.Data.Get<StringTable>("SecondaryInterface1001")?.Text);
+            float outcomeY = float.NaN;
+            foreach (WGTitleValue row in all)
+            {
+                if (outcome.Length > 0 && row.Title != null && row.Title.isActiveAndEnabled && Plain(row.Title.text) == outcome)
+                {
+                    outcomeY = row.transform.position.y;
+                }
+            }
+            if (LayoutLog.Enabled)
+            {
+                var line = new StringBuilder("Life tip: outcome '" + outcome + "' at " + outcomeY);
+                foreach (WGTitleValue row in all)
+                {
+                    _RowType.TryGetValue(row, out WGTip.TipType logType);
+                    line.Append(" | ").Append(logType).Append(" y ").Append(row.transform.position.y.ToString("F0"))
+                        .Append(" '").Append(row.Title != null ? row.Title.text : "").Append("' '").Append(row.Value != null ? row.Value.text : "").Append("'");
+                }
+                LayoutLog.Once("life tip " + line, line.ToString());
+            }
             foreach (WGTitleValue row in all)
             {
                 foreach (Text text in new[] { row.Title, row.Value })
@@ -4953,6 +5008,11 @@ namespace EnglishPatch.Hooks
                 }
                 else if (_RowType.TryGetValue(row, out WGTip.TipType type))
                 {
+                    //The gains and costs listed under "Activity Outcome" are written "+ 8" and "- 12"
+                    if (!float.IsNaN(outcomeY) && row.transform.position.y < outcomeY && type == WGTip.TipType.TitleValue)
+                    {
+                        Signed(row.Value);
+                    }
                     CenterTrainingRow(row, type);
                 }
                 rows.Add(row);
@@ -5056,12 +5116,44 @@ namespace EnglishPatch.Hooks
                     }
                     capTops[i] = top;
                 }
-                float step = (capTops[0] - capTops[count - 1]) / (count - 1);
+                /*
+                 * The last row ("1 Turn required") sits at the bottom of the tip: the tip keeps its height, with few rows
+                 * (Nap) the last one was left high up. Its letters go TurnFromBottom (in rows) above the tip's bottom.
+                 */
+                RectTransform tipRect = tip.transform as RectTransform;
+                float last = capTops[count - 1];
+                if (tipRect != null)
+                {
+                    Vector3[] edges = new Vector3[4];
+                    tipRect.GetWorldCorners(edges);
+                    float rowHeight = Mathf.Abs(rows[0].transform.TransformVector(new Vector3(0f, ((RectTransform)rows[0].transform).rect.height, 0f)).y);
+                    float wanted = edges[0].y + rowHeight * TurnFromBottom;
+                    //Only lower, and only within the tip
+                    if (wanted < last && wanted > edges[0].y)
+                    {
+                        foreach (Text text in texts[count - 1])
+                        {
+                            RectTransform rect = text.rectTransform;
+                            if (rect.parent != null)
+                            {
+                                rect.anchoredPosition += new Vector2(0f, rect.parent.InverseTransformVector(new Vector3(0f, wanted - last, 0f)).y);
+                            }
+                        }
+                    }
+                }
+
+                //The other rows evenly spaced between the first and the one before the last, as the game stacked them
+                int end = count - 2;
+                if (end < 2)
+                {
+                    return;
+                }
+                float step = (capTops[0] - capTops[end]) / end;
                 if (step <= 0f)
                 {
                     return;
                 }
-                for (int i = 1; i < count - 1; i++)
+                for (int i = 1; i < end; i++)
                 {
                     float move = capTops[0] - i * step - capTops[i];
                     foreach (Text text in texts[i])
