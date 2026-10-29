@@ -5190,7 +5190,12 @@ namespace EnglishPatch.Hooks
                 if (title != null) _GamePosition[title.rectTransform] = title.rectTransform.anchoredPosition;
                 if (value != null) _GamePosition[value.rectTransform] = value.rectTransform.anchoredPosition;
                 _RowType[titlevalue] = type;
-                WGTip tip = titlevalue.GetComponentInParent<WGTip>();
+                //The row is still hidden when it is set (shown right after), GetComponentInParent skips hidden objects
+                WGTip tip = null;
+                for (Transform t = titlevalue.transform.parent; t != null && tip == null; t = t.parent)
+                {
+                    tip = t.GetComponent<WGTip>();
+                }
                 if (tip != null)
                 {
                     Replacer.Run(tip, () => PlaceTrainingTip(tip));
