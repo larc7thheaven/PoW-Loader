@@ -267,6 +267,8 @@ namespace ModAPI
 
                 //Texture mods (ModResources\Textures) on the model's materials
                 TextureOverrides.Instance.ApplyTo(prefab);
+                //Effect colours (ModResources\EffectColours) when it is an effect, after the texture mods so they are coloured too
+                EffectColours.Instance.OnPrefabLoaded(NormalizePath(context.Parameters.Name), prefab);
 
                 foreach (UnityEngine.UI.Image childImage in prefab.GetComponentsInChildren<UnityEngine.UI.Image>(true))
                 {

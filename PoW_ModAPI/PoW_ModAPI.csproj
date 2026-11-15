@@ -25,6 +25,7 @@
     <Reference Include="UnityEngine.CoreModule" HintPath="$(GameDependencies)UnityEngine.CoreModule.dll" Private="false" />
     <Reference Include="UnityEngine.ImageConversionModule" HintPath="$(GameDependencies)UnityEngine.ImageConversionModule.dll" Private="false" />
     <Reference Include="UnityEngine.IMGUIModule" HintPath="$(GameDependencies)UnityEngine.IMGUIModule.dll" Private="false" />
+    <Reference Include="UnityEngine.ParticleSystemModule" HintPath="$(GameDependencies)UnityEngine.ParticleSystemModule.dll" Private="false" />
     <Reference Include="UnityEngine.UI" HintPath="$(GameDependencies)UnityEngine.UI.dll" Private="false" />
     <Reference Include="XUnity.ResourceRedirector" HintPath="..\Output\Mod\BepInEx\plugins\XUnity.ResourceRedirector\XUnity.ResourceRedirector.dll" Private="false" />
   </ItemGroup>

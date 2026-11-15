@@ -32,6 +32,8 @@ namespace PoWDevTools
 
         //Colours view
         private bool _colours;
+        //Effects view (EffectsPanel)
+        private bool _effects;
         private ColorPart _colorPart = ColorPart.Body;
         private Color _tint = Color.white;
         private HueShift _hue = HueShift.Neutral;
@@ -482,8 +484,16 @@ namespace PoWDevTools
 
             using (new GUILayout.HorizontalScope())
             {
-                if (GUILayout.Toggle(!_colours, "Parts", GUI.skin.button)) _colours = false;
-                if (GUILayout.Toggle(_colours, "Colours", GUI.skin.button)) _colours = true;
+                int tab = _effects ? 2 : _colours ? 1 : 0;
+                if (GUILayout.Toggle(tab == 0, "Parts", GUI.skin.button) && tab != 0) { _colours = false; _effects = false; }
+                if (GUILayout.Toggle(tab == 1, "Colours", GUI.skin.button) && tab != 1) { _colours = true; _effects = false; }
+                if (GUILayout.Toggle(tab == 2, "Effects", GUI.skin.button) && tab != 2) _effects = true;
+            }
+            if (_effects)
+            {
+                EffectsPanel.Draw();
+                GUILayout.EndArea();
+                return;
             }
             if (_colours)
             {
