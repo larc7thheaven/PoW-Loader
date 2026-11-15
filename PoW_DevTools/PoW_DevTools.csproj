@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net472</TargetFramework>
     <RootNamespace>DevToolsProbe</RootNamespace>
@@ -18,6 +18,8 @@
     <Reference Include="0Harmony" HintPath="$(BepInExCore)0Harmony.dll" Private="false" />
     <Reference Include="Artemis_Unity5" HintPath="$(GameDependencies)Artemis_Unity5.dll" Private="false" />
     <Reference Include="Assembly-CSharp" HintPath="$(GameDependencies)Assembly-CSharp.dll" Private="false" />
+    <Reference Include="Assembly-CSharp-firstpass" HintPath="$(GameDependencies)Assembly-CSharp-firstpass.dll" Private="false" />
+    <Reference Include="BehaviourMachineRuntime" HintPath="$(GameDependencies)BehaviourMachineRuntime.dll" Private="false" />
     <Reference Include="BepInEx" HintPath="$(BepInExCore)BepInEx.dll" Private="false" />
     <Reference Include="UnityEngine" HintPath="$(GameDependencies)UnityEngine.dll" Private="false" />
     <Reference Include="UnityEngine.AnimationModule" HintPath="$(GameDependencies)UnityEngine.AnimationModule.dll" Private="false" />
