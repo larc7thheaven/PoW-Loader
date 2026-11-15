@@ -43,6 +43,7 @@
     <Compile Include="ResourceRedirection\DataManagerRedirector.cs" />
     <Compile Include="ResourceRedirection\ImageLanguageRedirector.cs" />
     <Compile Include="ResourceRedirection\ResourceRedirectManager.cs" />
+    <Compile Include="ResourceRedirection\EffectColours.cs" />
     <Compile Include="ResourceRedirection\TextureOverrides.cs" />
     <Compile Include="UI\Hooks\MainMenu.cs" />
     <Compile Include="UI\Console\Console.cs" />
@@ -105,6 +106,10 @@
     </Reference>
     <Reference Include="UnityEngine.IMGUIModule">
       <HintPath>..\Dependencies\UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ParticleSystemModule">
+      <HintPath>..\Dependencies\UnityEngine.ParticleSystemModule.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="UnityEngine.UI">

@@ -81,6 +81,16 @@ Additionally, the `EnglishPatch` plugin is included to support English translati
 
 Every `.png` in `ModResources\Textures` (any sub folder, so each mod keeps its own folder) replaces the game texture of the same name: outfits, hair, weapons, accessories. To make one, export the textures of a character with the Dev Tools wardrobe (F8 > Colours > Export textures, written to `TextureDump`), paint over them keeping size and layout, save them with the same file name into `ModResources\Textures\<your mod>\` and press Reload texture mods.
 
+### Effect Colours
+
+Skill and other effects can get other colours. Every `.txt` in `ModResources\EffectColours` holds lines
+
+```
+<effect name> = <hue>, <saturation>, <brightness>
+```
+
+for example `eff_sword_slash01 = 180, 1.2, 1`: hue in degrees (-180 to 180), saturation and brightness as factors (1 = unchanged), `#` starts a comment. The particle colours, trails, lights, material tints and coloured textures of that effect are turned when the game loads it. The Dev Tools wardrobe (F8 > Effects) lists the effects the game has loaded, the most recent first, changes them live and saves the line into `ModResources\EffectColours\colours.txt`.
+
 ### Dev Tools
 
 `PoW_DevTools` is a separate plugin for modders, not part of the English release. Build it and copy `Output\DevTools\BepInEx\plugins\PoW_DevTools.dll` into the game's `BepInEx\plugins`.

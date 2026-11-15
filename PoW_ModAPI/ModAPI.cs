@@ -85,6 +85,9 @@ namespace ModAPI
         //Texture mods in ModResources\Textures, see TextureOverrides
         public TextureOverrides Textures { get { return TextureOverrides.Instance; } }
 
+        //Effect colours in ModResources\EffectColours, see EffectColours
+        public EffectColours EffectColours { get { return EffectColours.Instance; } }
+
         private bool _ModsLoaded = false;
         private readonly SortedList<int, PoWMod_Wrapper> _Mods = new SortedList<int, PoWMod_Wrapper>();
         private int _ModsHighestLoadOrderIndex = -1;

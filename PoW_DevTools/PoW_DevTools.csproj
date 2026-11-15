@@ -103,6 +103,7 @@
   <ItemGroup>
     <Compile Include="BattleReplay.cs" />
     <Compile Include="Catalog.cs" />
+    <Compile Include="EffectsPanel.cs" />
     <Compile Include="DevTools.cs" />
     <Compile Include="PhotoMode.cs" />
     <Compile Include="Picker.cs" />
