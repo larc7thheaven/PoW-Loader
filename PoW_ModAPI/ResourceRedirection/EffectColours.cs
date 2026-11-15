@@ -281,6 +281,43 @@ namespace ModAPI
             return effect != null && (_Rules.ContainsKey(effect) || _Targeted.Values.Any(t => t.ContainsKey(effect)));
         }
 
+        /// <summary>
+        /// The effect's own colours (before any line), for a preview: r, g, b, a of up to 12 colours one after the other.
+        /// Particle colours and gradients of the modules in use, trails, lights, material tints and the main colours of its textures.
+        /// </summary>
+        public float[] Palette(string effect)
+        {
+            if (effect == null || !_Seen.TryGetValue(effect, out GameObject prefab) || prefab == null)
+            {
+                return new float[0];
+            }
+            try
+            {
+                var colours = new List<Color>();
+                //What the game had: kept by the snapshot when the effect is coloured, else the effect as it is
+                (_Snapshots.TryGetValue(prefab, out Snapshot snapshot) ? snapshot : new Snapshot(prefab)).CollectColours(colours);
+                var distinct = new List<Color>();
+                foreach (Color c in colours)
+                {
+                    if (distinct.Count >= 12) break;
+                    if (c.a < 0.05f) continue;
+                    if (distinct.Any(d => Mathf.Abs(d.r - c.r) + Mathf.Abs(d.g - c.g) + Mathf.Abs(d.b - c.b) < 0.12f)) continue;
+                    distinct.Add(c);
+                }
+                var flat = new float[distinct.Count * 4];
+                for (int i = 0; i < distinct.Count; i++)
+                {
+                    flat[i * 4] = distinct[i].r; flat[i * 4 + 1] = distinct[i].g; flat[i * 4 + 2] = distinct[i].b; flat[i * 4 + 3] = distinct[i].a;
+                }
+                return flat;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("[EffectColours] Could not read the colours of " + effect + ": " + e.Message);
+                return new float[0];
+            }
+        }
+
         /// <summary>Who used the effect last, as a line prefix: "player", a model, or "" when unknown.</summary>
         public string LastCaster(string effect)
         {
@@ -588,6 +625,86 @@ namespace ModAPI
                 }
             }
 
+            //The colours recorded, for the preview
+            public void CollectColours(List<Color> colours)
+            {
+                foreach (var p in _Particles)
+                {
+                    p.Value.Collect(colours);
+                }
+                foreach (var t in _Trails) AddKeys(t.Value, colours);
+                foreach (var l in _Lines) AddKeys(l.Value, colours);
+                foreach (var light in _Lights) colours.Add(light.Value);
+                foreach (var m in _Materials)
+                {
+                    foreach (Material material in m.Value)
+                    {
+                        if (material == null) continue;
+                        foreach (string p in ColourProperties)
+                        {
+                            if (material.HasProperty(p)) colours.Add(material.GetColor(p));
+                        }
+                        foreach (string p in TextureProperties)
+                        {
+                            if (material.HasProperty(p)) colours.AddRange(TextureColours(material.GetTexture(p)));
+                        }
+                    }
+                }
+            }
+
+            internal static void AddKeys(Gradient g, List<Color> colours)
+            {
+                if (g == null) return;
+                foreach (GradientColorKey key in g.colorKeys) colours.Add(key.color);
+            }
+
+            //Main colours of a texture (the coloured, visible pixels of a small copy), cached per texture
+            private static readonly Dictionary<int, List<Color>> _TextureColours = new Dictionary<int, List<Color>>();
+
+            private static List<Color> TextureColours(Texture source)
+            {
+                var result = new List<Color>();
+                if (source == null) return result;
+                if (_TextureColours.TryGetValue(source.GetInstanceID(), out List<Color> cached)) return cached;
+                const int size = 16;
+                RenderTexture rt = RenderTexture.GetTemporary(size, size, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+                RenderTexture previous = RenderTexture.active;
+                try
+                {
+                    Graphics.Blit(source, rt);
+                    RenderTexture.active = rt;
+                    var read = new Texture2D(size, size, TextureFormat.RGBA32, false, false);
+                    read.ReadPixels(new Rect(0, 0, size, size), 0, 0);
+                    Color32[] px = read.GetPixels32();
+                    UnityEngine.Object.Destroy(read);
+                    //Buckets of similar colours, the three biggest (visible pixels only)
+                    var buckets = new Dictionary<int, KeyValuePair<int, Vector3>>();
+                    foreach (Color32 c in px)
+                    {
+                        if (c.a < 50 || Math.Max(c.r, Math.Max(c.g, c.b)) < 20) continue;
+                        int key = (c.r >> 5) << 6 | (c.g >> 5) << 3 | (c.b >> 5);
+                        buckets.TryGetValue(key, out var b);
+                        buckets[key] = new KeyValuePair<int, Vector3>(b.Key + 1, b.Value + new Vector3(c.r, c.g, c.b));
+                    }
+                    foreach (var b in buckets.Values.OrderByDescending(b => b.Key).Take(3))
+                    {
+                        Vector3 avg = b.Value / (b.Key * 255f);
+                        result.Add(new Color(avg.x, avg.y, avg.z, 1f));
+                    }
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError("[EffectColours] Could not read the texture " + source.name + ": " + e.Message);
+                }
+                finally
+                {
+                    RenderTexture.active = previous;
+                    RenderTexture.ReleaseTemporary(rt);
+                }
+                _TextureColours[source.GetInstanceID()] = result;
+                return result;
+            }
+
             public void Shift(ColourShift shift)
             {
                 foreach (var p in _Particles)
@@ -793,6 +910,27 @@ namespace ModAPI
         private class ParticleColours
         {
             public ParticleSystem.MinMaxGradient Start, OverLifetime, BySpeed, TrailLifetime, TrailOverTrail;
+            public bool LifetimeOn, SpeedOn, TrailsOn;
+
+            public void Collect(List<Color> colours)
+            {
+                Add(Start, colours);
+                if (LifetimeOn) Add(OverLifetime, colours);
+                if (SpeedOn) Add(BySpeed, colours);
+                if (TrailsOn) { Add(TrailLifetime, colours); Add(TrailOverTrail, colours); }
+            }
+
+            private static void Add(ParticleSystem.MinMaxGradient m, List<Color> colours)
+            {
+                switch (m.mode)
+                {
+                    case ParticleSystemGradientMode.Color: colours.Add(m.color); break;
+                    case ParticleSystemGradientMode.TwoColors: colours.Add(m.colorMin); colours.Add(m.colorMax); break;
+                    case ParticleSystemGradientMode.Gradient:
+                    case ParticleSystemGradientMode.RandomColor: Snapshot.AddKeys(m.gradient, colours); break;
+                    case ParticleSystemGradientMode.TwoGradients: Snapshot.AddKeys(m.gradientMin, colours); Snapshot.AddKeys(m.gradientMax, colours); break;
+                }
+            }
 
             public static ParticleColours Of(ParticleSystem ps)
             {
@@ -803,6 +941,9 @@ namespace ModAPI
                     BySpeed = ps.colorBySpeed.color,
                     TrailLifetime = ps.trails.colorOverLifetime,
                     TrailOverTrail = ps.trails.colorOverTrail,
+                    LifetimeOn = ps.colorOverLifetime.enabled,
+                    SpeedOn = ps.colorBySpeed.enabled,
+                    TrailsOn = ps.trails.enabled,
                 };
             }
 
@@ -815,6 +956,9 @@ namespace ModAPI
                     BySpeed = shift.Of(BySpeed),
                     TrailLifetime = shift.Of(TrailLifetime),
                     TrailOverTrail = shift.Of(TrailOverTrail),
+                    LifetimeOn = LifetimeOn,
+                    SpeedOn = SpeedOn,
+                    TrailsOn = TrailsOn,
                 };
             }
 

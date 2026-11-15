@@ -42,6 +42,8 @@ namespace PoWDevTools
         private static string _selected, _loadedFor, _drawnSelected;
         //Who the colour is for: "" everyone, "player", or a character's model
         private static int _forMode;
+        private static string _paletteFor;
+        private static readonly List<Color> _palette = new List<Color>(), _after = new List<Color>();
         private static bool _needModel;
         private static string _forModel = "";
         private static string Target { get { return _forMode == 1 ? "player" : _forMode == 2 ? (_forModel ?? "").Trim() : ""; } }
@@ -82,6 +84,7 @@ namespace PoWDevTools
                     _search = "";
                     _selected = null;
                     _loadedFor = null;
+                    _paletteFor = null;
                     _nextRefresh = 0f;
                     _message = "List cleared: use a skill, its effects show up here.";
                 }
@@ -152,6 +155,23 @@ namespace PoWDevTools
                 //Recolouring copies the effect's textures: done once the slider rests a moment, not on every step
                 _applyAt = Time.realtimeSinceStartup + 0.3f;
             }
+            //The effect's own colours and what the sliders make of them, no need to replay the skill
+            if (layout && _paletteFor != sel)
+            {
+                _paletteFor = sel;
+                _palette.Clear();
+                try
+                {
+                    float[] f = (float[])Call("Palette", sel);
+                    for (int i = 0; i + 3 < f.Length; i += 4) _palette.Add(new Color(f[i], f[i + 1], f[i + 2], f[i + 3]));
+                }
+                catch (Exception e) { Debug.LogError("[DevTools] Effect colours: " + e.Message); }
+            }
+            _after.Clear();
+            foreach (Color c in _palette) _after.Add(Swatches.EffectShift(c, _hue, _sat, _bright));
+            Swatches.Row("Before", _palette);
+            Swatches.Row("After", _after);
+
             if (_applyAt > 0f && Time.realtimeSinceStartup >= _applyAt)
             {
                 _applyAt = -1f;

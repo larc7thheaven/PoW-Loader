@@ -37,6 +37,30 @@ namespace PoWDevTools
         private ColorPart _colorPart = ColorPart.Body;
         private Color _tint = Color.white;
         private HueShift _hue = HueShift.Neutral;
+        private string _paletteFor;
+        private float _paletteUntil;
+        private List<Color> _palette = new List<Color>();
+        private readonly List<Color> _paletteAfter = new List<Color>();
+
+        //Main colours of the picked part's textures, as the game (or a texture mod) has them, without a recolour
+        private List<Color> PartColours(ActorController actor)
+        {
+            var colours = new List<Color>();
+            foreach (Renderer r in Recolor.RenderersOf(AvatarOf(actor), _colorPart))
+            {
+                foreach (Material m in r.sharedMaterials)
+                {
+                    if (m == null || m.mainTexture == null) continue;
+                    foreach (Color c in Swatches.TextureColours(Recolor.OriginalOf(m.mainTexture), 8))
+                    {
+                        if (colours.Count >= 10) return colours;
+                        if (colours.Any(d => Mathf.Abs(d.r - c.r) + Mathf.Abs(d.g - c.g) + Mathf.Abs(d.b - c.b) < 0.1f)) continue;
+                        colours.Add(c);
+                    }
+                }
+            }
+            return colours;
+        }
         private string _colourStateFor;
         private static readonly Color[] Palette =
         {
@@ -641,6 +665,21 @@ namespace PoWDevTools
             _hue.Saturation = Slider("Saturation", _hue.Saturation, 0f, 2f);
             _hue.Brightness = Slider("Brightness", _hue.Brightness, 0.3f, 1.7f);
             _hue.KeepSkin = GUILayout.Toggle(_hue.KeepSkin, " Protect skin tones");
+            //The part's own colours and what the recolour makes of them, before applying it
+            if (Event.current.type == EventType.Layout)
+            {
+                string paletteKey = actor.GetInstanceID() + "|" + _colorPart;
+                if (_paletteFor != paletteKey || Time.realtimeSinceStartup > _paletteUntil)
+                {
+                    _paletteFor = paletteKey;
+                    _paletteUntil = Time.realtimeSinceStartup + 2f;
+                    _palette = PartColours(actor);
+                }
+            }
+            _paletteAfter.Clear();
+            foreach (Color c in _palette) _paletteAfter.Add(Swatches.RecolourShift(c, _hue));
+            Swatches.Row("Before", _palette);
+            Swatches.Row("After", _paletteAfter);
             using (new GUILayout.HorizontalScope())
             {
                 if (GUILayout.Button("Apply recolour")) Apply(actor, HueSlot(_colorPart), _hue.ToString());
