@@ -89,7 +89,7 @@ Skill and other effects can get other colours. Every `.txt` in `ModResources\Eff
 <effect name> = <hue>, <saturation>, <brightness>
 ```
 
-for example `eff_sword_slash01 = 180, 1.2, 1`: hue in degrees (-180 to 180), saturation and brightness as factors (1 = unchanged), `#` starts a comment. The particle colours, trails, lights, material tints and coloured textures of that effect are turned when the game loads it. The Dev Tools wardrobe (F8 > Effects) lists the effects the game has loaded, the most recent first, changes them live and saves the line into `ModResources\EffectColours\colours.txt`.
+for example `eff_sword_slash01 = 180, 1.2, 1`: hue in degrees (-180 to 180), saturation and brightness as factors (1 = unchanged), `#` starts a comment. A line can be for one character only: `player: eff_sword_slash01 = ...` when the player uses the effect, `in0104: eff_sword_slash01 = ...` for the character with that model; it wins over a line for everyone, the other characters keep their colours. The particle colours, trails, lights, material tints and coloured textures of that effect are turned when the game loads it. The Dev Tools wardrobe (F8 > Effects) lists the effects the game has loaded, the most recent first, changes them live and saves the line into `ModResources\EffectColours\colours.txt`.
 
 ### Dev Tools
 
