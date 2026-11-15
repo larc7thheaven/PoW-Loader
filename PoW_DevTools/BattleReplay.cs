@@ -27,6 +27,7 @@ namespace DevToolsProbe
 
         //A replay is running: its end is ours
         public static bool Replaying { get; private set; }
+        public static bool BattleStarted { get { return _sawBattle && Game.BattleStateMachine != null; } }
         private static bool _sawBattle;
         private static float _outOfBattleSince = -1f;
         private static bool _starting;
@@ -118,6 +119,25 @@ namespace DevToolsProbe
                     Debug.Log("[DevTools] Battle replay left (out of battle)");
                 }
             }
+        }
+
+        private static bool SnapshotExists
+        {
+            get
+            {
+                try { return System.IO.File.Exists(string.Format(GameConfig.SaveFilePath, Snapshot)); } catch { return false; }
+            }
+        }
+
+        //Back to the place saved before the last replay (for a replay that did not come back by itself)
+        private static void Restore()
+        {
+            if (InBattle) { _message = "Finish or leave the battle first."; return; }
+            Replaying = false;
+            Open = false;
+            ConsolePanel.Close();
+            Debug.Log("[DevTools] Battle replay: restoring " + Snapshot);
+            Game.LoadAsync(Snapshot);
         }
 
         //-------------------------------------------------------------- list
@@ -212,6 +232,14 @@ namespace DevToolsProbe
                 if (GUILayout.Button(_starting ? "Saving..." : "Start replay", GUILayout.Height(30f))) Start(_selected);
                 GUI.enabled = true;
             }
+            if (SnapshotExists)
+            {
+                using (new GUILayout.HorizontalScope())
+                {
+                    GUILayout.Label("<color=#9a9a9a>Your place before the last replay is kept in SaveData\\" + Snapshot + ".</color>", _noteStyle);
+                    if (GUILayout.Button("Restore snapshot", GUILayout.Width(150f))) Restore();
+                }
+            }
             if (_message.Length > 0) GUILayout.Label(_message, _noteStyle);
             GUILayout.EndArea();
         }
@@ -226,6 +254,33 @@ namespace DevToolsProbe
             if (!BattleReplay.Replaying) return true;
             BattleReplay.Finish(Traverse.Create(__instance).Property("BattleManager").GetValue());
             return false;
+        }
+    }
+
+    /*
+     * A battle on another map loads that map with a LoadingEventArgs whose TimeStage is left at its default, Begin.
+     * Outside the Begin stage the loader then moves the calendar on (Round.NextReoud) and plays the next period's
+     * opening cutscene instead of the battle. While a replay starts, the load keeps the time stage and plays no cutscene.
+     */
+    [HarmonyPatch(typeof(Heluo.FSM.Main.Loading), "OnEnable")]
+    internal static class Loading_OnEnable
+    {
+        private static void Prefix(Heluo.FSM.Main.Loading __instance)
+        {
+            if (!BattleReplay.Replaying || BattleReplay.BattleStarted) return;
+            try
+            {
+                var args = Traverse.Create(Game.FSM).Property("eventArgs").GetValue() as Heluo.FSM.Main.LoadingEventArgs;
+                if (args == null || !args.IsRestartBattle) return;
+                args.TimeStage = Heluo.Manager.TimeStage.None;
+                args.CinematicId = "";
+                args.IsNextTime = false;
+                Debug.Log("[DevTools] Battle replay: battle map load keeps the time stage");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("[DevTools] Battle replay load: " + e.Message);
+            }
         }
     }
 
