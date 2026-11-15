@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net472</TargetFramework>
-    <RootNamespace>DevToolsProbe</RootNamespace>
+    <RootNamespace>PoWDevTools</RootNamespace>
     <AssemblyName>PoW_DevTools</AssemblyName>
     <!-- Not part of the English release: its own folder, copied into the game's BepInEx\plugins by hand -->
     <OutputPath>..\Output\DevTools\BepInEx\plugins\</OutputPath>
@@ -9,7 +9,7 @@
 
   <ItemGroup>
     <!-- English notes of the game's Chinese developer notes, shown in the console's ID lists -->
-    <EmbeddedResource Include="Notes.tsv" LogicalName="DevToolsProbe.Notes.tsv" />
+    <EmbeddedResource Include="Notes.tsv" LogicalName="PoWDevTools.Notes.tsv" />
   </ItemGroup>
 
   <!-- Compile only: everything below is already in the game or BepInEx, so nothing is copied to the output.
