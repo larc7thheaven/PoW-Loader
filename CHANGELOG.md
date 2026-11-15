@@ -26,7 +26,7 @@ Newest first, from the first of these releases (23 October 2026).
 - **Outfits, hair, weapons and accessories can be repainted:** every `.png` in `ModResources\Textures` (any sub folder, one per mod) replaces the game texture of the same name when a model loads. With no files there nothing is looked at. Reloading the texture mods updates every loaded model, not only those on screen, and a removed file gives each texture slot its own game texture back.
 
 ### Effect colours
-- **Skill effects in other colours:** lines `<effect name> = <hue>, <saturation>, <brightness>` in any `.txt` of `ModResources\EffectColours` turn the colours of that effect (particles, trails, lights, material tints, coloured textures). Only effects with a line are touched. Dev Tools: wardrobe (F8) > Effects lists the effects the game loaded, changes them live and saves them into `colours.txt`.
+- **Skill effects in other colours:** lines `<effect name> = <hue>, <saturation>, <brightness>` in any `.txt` of `ModResources\EffectColours` turn the colours of that effect (particles, trails, lights, material tints, coloured textures). Only effects with a line are touched. `player: <effect name> = ...` or `<model>: <effect name> = ...` colours it only when that character uses it. Dev Tools: wardrobe (F8) > Effects lists the effects the game loaded (Clear list to see only the next skill's), changes them live for everyone, the player or one character, and saves them into `colours.txt`.
 
 ### Mod API
 - An asset with a mod file of a type ModAPI cannot build loads the game's own asset instead of nothing; a prefab that fails to load no longer throws an error.

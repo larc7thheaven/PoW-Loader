@@ -7,6 +7,8 @@ using System.Text;
 
 using BepInEx;
 
+using HarmonyLib;
+
 using UnityEngine;
 
 namespace ModAPI
@@ -24,6 +26,11 @@ namespace ModAPI
      * trails), trail and line renderer colours, lights, material tints and coloured textures are turned. The game keeps
      * the loaded effect for the session, so a changed line is applied to it again at once (Set, Reload): what it looked
      * like before is kept to start from. Only effects with a line are touched.
+     *
+     * A line can be for one character only: "player: eff_sword_slash01 = ..." when the player uses it, "in0104: ..." when
+     * the character with that model (or exterior id) uses it. Those change the effect where it appears (EffectEventHandler
+     * CreateEffect), not the game's own copy, so other characters keep their colours; such a line wins over a line for
+     * everyone. Effects the game shows without a caster only follow the lines for everyone.
      */
     public class EffectColours
     {
@@ -39,6 +46,44 @@ namespace ModAPI
 
         //Effect name => colour change, from the files (and from Set until saved)
         private Dictionary<string, ColourShift> _Rules = new Dictionary<string, ColourShift>(StringComparer.OrdinalIgnoreCase);
+        //Character ("player", a model or exterior id) => effect name => colour change for that character only
+        private Dictionary<string, Dictionary<string, ColourShift>> _Targeted = NewTargeted();
+        //Who used an effect last, as a line prefix ("player" or the model)
+        private readonly Dictionary<string, string> _LastCaster = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        private static Dictionary<string, Dictionary<string, ColourShift>> NewTargeted()
+        {
+            return new Dictionary<string, Dictionary<string, ColourShift>>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private bool TryGetRule(string effect, string target, out ColourShift shift)
+        {
+            shift = ColourShift.Neutral;
+            if (string.IsNullOrEmpty(effect))
+            {
+                return false;
+            }
+            if (string.IsNullOrEmpty(target))
+            {
+                return _Rules.TryGetValue(effect, out shift);
+            }
+            return _Targeted.TryGetValue(target, out var rules) && rules.TryGetValue(effect, out shift);
+        }
+
+        private void SetRule(string effect, string target, ColourShift shift)
+        {
+            if (string.IsNullOrEmpty(target))
+            {
+                if (shift.IsNeutral) _Rules.Remove(effect); else _Rules[effect] = shift;
+                return;
+            }
+            if (!_Targeted.TryGetValue(target, out var rules))
+            {
+                if (shift.IsNeutral) return;
+                _Targeted[target] = rules = new Dictionary<string, ColourShift>(StringComparer.OrdinalIgnoreCase);
+            }
+            if (shift.IsNeutral) rules.Remove(effect); else rules[effect] = shift;
+        }
         //Effects the game loaded this session, newest last
         private readonly Dictionary<string, GameObject> _Seen = new Dictionary<string, GameObject>(StringComparer.OrdinalIgnoreCase);
         private readonly List<string> _Order = new List<string>();
@@ -69,12 +114,13 @@ namespace ModAPI
             Scan();
         }
 
-        public int Count { get { return _Rules.Count; } }
+        public int Count { get { return _Rules.Count + _Targeted.Values.Sum(t => t.Count); } }
 
         //-------------------------------------------------------------- files
         public void Scan()
         {
-            var rules = new Dictionary<string, ColourShift>(StringComparer.OrdinalIgnoreCase);
+            _Rules = new Dictionary<string, ColourShift>(StringComparer.OrdinalIgnoreCase);
+            _Targeted = NewTargeted();
             if (Directory.Exists(Folder))
             {
                 var files = new List<string>(Directory.GetFiles(Folder, "*.txt", SearchOption.AllDirectories));
@@ -93,25 +139,25 @@ namespace ModAPI
                     }
                     for (int i = 0; i < lines.Length; i++)
                     {
-                        if (!TryParseLine(lines[i], out string name, out ColourShift shift, out bool isRule))
+                        if (!TryParseLine(lines[i], out string target, out string name, out ColourShift shift, out bool isRule))
                         {
                             if (isRule)
                             {
-                                Debug.LogWarning("[EffectColours] " + Path.GetFileName(file) + " line " + (i + 1) + " is not \"name = hue, saturation, brightness\": " + lines[i]);
+                                Debug.LogWarning("[EffectColours] " + Path.GetFileName(file) + " line " + (i + 1) + " is not \"[character:] name = hue, saturation, brightness\": " + lines[i]);
                             }
                             continue;
                         }
-                        rules[name] = shift;
+                        SetRule(name, target, shift);
                     }
                 }
             }
-            _Rules = rules;
-            Debug.Log("[EffectColours] " + _Rules.Count + " effect colour(s) in " + FolderName);
+            Debug.Log("[EffectColours] " + Count + " effect colour(s) in " + FolderName);
         }
 
         //isRule: the line is not empty and not a comment
-        private static bool TryParseLine(string line, out string name, out ColourShift shift, out bool isRule)
+        private static bool TryParseLine(string line, out string target, out string name, out ColourShift shift, out bool isRule)
         {
+            target = "";
             name = null;
             shift = ColourShift.Neutral;
             string text = (line ?? "").Trim();
@@ -126,6 +172,17 @@ namespace ModAPI
                 return false;
             }
             name = text.Substring(0, eq).Trim();
+            //"player: name" or "in0104: name", for that character only
+            int colon = name.IndexOf(':');
+            if (colon >= 0)
+            {
+                target = name.Substring(0, colon).Trim();
+                name = name.Substring(colon + 1).Trim();
+                if (target.Length == 0)
+                {
+                    return false;
+                }
+            }
             return name.Length > 0 && ColourShift.TryParse(text.Substring(eq + 1), out shift);
         }
 
@@ -133,22 +190,26 @@ namespace ModAPI
         /// Writes the effect's current colour change into colours.txt (other lines and comments are kept), removes its
         /// line when it has no change. Returns a message for the player.
         /// </summary>
-        public string Save(string effect)
+        public string Save(string effect, string target)
         {
+            target = (target ?? "").Trim();
             try
             {
                 Directory.CreateDirectory(Folder);
                 var lines = File.Exists(EditFile) ? new List<string>(File.ReadAllLines(EditFile, Encoding.UTF8)) : new List<string>
                 {
                     "# Effect colours: <effect name> = <hue -180..180>, <saturation>, <brightness>   (1 = unchanged)",
+                    "# For one character only: player: <effect name> = ...   or   <model, e.g. in0104>: <effect name> = ...",
                     "# Made by Dev Tools (F8 > Effects) or by hand. Any other .txt in this folder works the same.",
                 };
-                bool has = _Rules.TryGetValue(effect, out ColourShift shift) && !shift.IsNeutral;
-                string newLine = has ? effect + " = " + shift : null;
+                bool has = TryGetRule(effect, target, out ColourShift shift) && !shift.IsNeutral;
+                string key = target.Length > 0 ? target + ": " + effect : effect;
+                string newLine = has ? key + " = " + shift : null;
                 bool written = false;
                 for (int i = lines.Count - 1; i >= 0; i--)
                 {
-                    if (TryParseLine(lines[i], out string name, out _, out _) && string.Equals(name, effect, StringComparison.OrdinalIgnoreCase))
+                    if (TryParseLine(lines[i], out string lineTarget, out string name, out _, out _) && string.Equals(name, effect, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(lineTarget, target, StringComparison.OrdinalIgnoreCase))
                     {
                         if (newLine != null && !written)
                         {
@@ -166,8 +227,8 @@ namespace ModAPI
                     lines.Add(newLine);
                 }
                 File.WriteAllLines(EditFile, lines.ToArray(), new UTF8Encoding(false));
-                return has ? "Saved " + effect + " into " + FolderName + Path.DirectorySeparatorChar + EditFileName + "."
-                    : effect + " removed from " + EditFileName + ".";
+                return has ? "Saved " + key + " into " + FolderName + Path.DirectorySeparatorChar + EditFileName + "."
+                    : key + " removed from " + EditFileName + ".";
             }
             catch (Exception e)
             {
@@ -207,33 +268,38 @@ namespace ModAPI
             return list.ToArray();
         }
 
-        /// <summary>Hue, saturation and brightness of an effect (0, 1, 1 when it has no change).</summary>
-        public float[] Get(string effect)
+        /// <summary>Hue, saturation and brightness of an effect for a character ("" everyone, "player", a model), 0, 1, 1 without a line.</summary>
+        public float[] Get(string effect, string target)
         {
-            ColourShift shift = _Rules.TryGetValue(effect ?? "", out ColourShift s) ? s : ColourShift.Neutral;
+            ColourShift shift = TryGetRule(effect, (target ?? "").Trim(), out ColourShift s) ? s : ColourShift.Neutral;
             return new[] { shift.Hue, shift.Saturation, shift.Brightness };
         }
 
+        /// <summary>The effect has a line, for everyone or for a character.</summary>
         public bool HasRule(string effect)
         {
-            return effect != null && _Rules.ContainsKey(effect);
+            return effect != null && (_Rules.ContainsKey(effect) || _Targeted.Values.Any(t => t.ContainsKey(effect)));
+        }
+
+        /// <summary>Who used the effect last, as a line prefix: "player", a model, or "" when unknown.</summary>
+        public string LastCaster(string effect)
+        {
+            return effect != null && _LastCaster.TryGetValue(effect, out string caster) ? caster : "";
         }
 
         /// <summary>Changes an effect's colours now (not saved until Save). Returns false when the game did not load it yet.</summary>
-        public bool Set(string effect, float hue, float saturation, float brightness)
+        public bool Set(string effect, string target, float hue, float saturation, float brightness)
         {
             if (string.IsNullOrEmpty(effect))
             {
                 return false;
             }
-            var shift = new ColourShift(hue, saturation, brightness);
-            if (shift.IsNeutral)
+            target = (target ?? "").Trim();
+            SetRule(effect, target, new ColourShift(hue, saturation, brightness));
+            if (target.Length > 0)
             {
-                _Rules.Remove(effect);
-            }
-            else
-            {
-                _Rules[effect] = shift;
+                //Shown on the next copy the character makes
+                return _Seen.ContainsKey(effect);
             }
             if (!_Seen.TryGetValue(effect, out GameObject prefab) || prefab == null)
             {
@@ -297,6 +363,160 @@ namespace ModAPI
         public void ClearRecent()
         {
             _Order.Clear();
+        }
+
+        //-------------------------------------------------------------- one character's copy
+        //Material copies for one character's effects: original material and colour change => copy (kept for the session)
+        private readonly Dictionary<string, Material> _CopyMaterials = new Dictionary<string, Material>();
+
+        //Called (EffectEventHandler.CreateEffect) for every effect copy the game shows, with who uses it
+        public void OnEffectCreated(GameObject instance, string prefabPath, GameObject caster)
+        {
+            if (instance == null || string.IsNullOrEmpty(prefabPath))
+            {
+                return;
+            }
+            string name = Path.GetFileNameWithoutExtension(prefabPath.Replace('\\', '/'));
+            List<string> keys = CasterKeys(caster);
+            if (keys.Count > 0)
+            {
+                _LastCaster[name] = keys[0];
+            }
+            if (_Targeted.Count == 0)
+            {
+                return;
+            }
+            foreach (string key in keys)
+            {
+                if (!TryGetRule(name, key, out ColourShift wanted))
+                {
+                    continue;
+                }
+                //The copy starts from the game's copy, which may already have the colours for everyone
+                ColourShift everyone = _Rules.TryGetValue(name, out ColourShift g) ? g : ColourShift.Neutral;
+                ColourShift delta = wanted.From(everyone);
+                if (!delta.IsNeutral)
+                {
+                    ShiftCopy(instance, delta);
+                }
+                return;
+            }
+        }
+
+        //Line prefixes that fit the character using the effect: "player", its model, its exterior id
+        private static List<string> CasterKeys(GameObject caster)
+        {
+            var keys = new List<string>();
+            if (caster == null)
+            {
+                return keys;
+            }
+            try
+            {
+                bool player = false;
+                string model = null, exterior = null;
+                var unit = caster.GetComponentInParent<Heluo.Battle.WuxiaUnit>();
+                if (unit != null)
+                {
+                    //In battle: the unit of the model
+                    exterior = unit.exterior?.Id;
+                    model = unit.exterior?.Model;
+                    player = exterior == Heluo.GameConfig.Player;
+                }
+                else
+                {
+                    //Out of battle: the player's character is named "<model>_Player" (in0101_Player), the effect comes from it or a child of it
+                    for (Transform t = caster.transform; t != null && model == null; t = t.parent)
+                    {
+                        string n = t.name.Replace("(Clone)", "").Trim();
+                        if (n.EndsWith("_" + Heluo.GameConfig.Player, StringComparison.OrdinalIgnoreCase) || n == Heluo.GameConfig.Player)
+                        {
+                            player = true;
+                            model = ModelOf(n);
+                        }
+                    }
+                    if (model == null)
+                    {
+                        model = ModelOf(caster.name);
+                    }
+                }
+                if (player)
+                {
+                    keys.Add("player");
+                }
+                if (!string.IsNullOrEmpty(model))
+                {
+                    keys.Add(model);
+                }
+                if (!string.IsNullOrEmpty(exterior) && !player && !string.Equals(exterior, model, StringComparison.OrdinalIgnoreCase))
+                {
+                    keys.Add(exterior);
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("[EffectColours] Could not tell who uses an effect: " + e.Message);
+            }
+            return keys;
+        }
+
+        //"in0104(Clone)", "in0101_Player" => "in0104", "in0101"
+        private static string ModelOf(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                return null;
+            }
+            string n = name.Replace("(Clone)", "").Trim();
+            int cut = n.IndexOfAny(new[] { '_', ' ' });
+            return cut > 0 ? n.Substring(0, cut) : n;
+        }
+
+        //Turns the colours of one copy of an effect: its own particle settings, its own material copies (shared by all copies with this colour)
+        private void ShiftCopy(GameObject copy, ColourShift shift)
+        {
+            try
+            {
+                foreach (ParticleSystem ps in copy.GetComponentsInChildren<ParticleSystem>(true))
+                {
+                    ParticleColours.Of(ps).Shifted(shift).ApplyTo(ps);
+                }
+                foreach (TrailRenderer t in copy.GetComponentsInChildren<TrailRenderer>(true))
+                {
+                    t.colorGradient = shift.Of(t.colorGradient);
+                }
+                foreach (LineRenderer l in copy.GetComponentsInChildren<LineRenderer>(true))
+                {
+                    l.colorGradient = shift.Of(l.colorGradient);
+                }
+                foreach (Light light in copy.GetComponentsInChildren<Light>(true))
+                {
+                    light.color = shift.Of(light.color);
+                }
+                foreach (Renderer renderer in copy.GetComponentsInChildren<Renderer>(true))
+                {
+                    Material[] shared = renderer.sharedMaterials;
+                    for (int i = 0; i < shared.Length; i++)
+                    {
+                        if (shared[i] == null)
+                        {
+                            continue;
+                        }
+                        string key = shared[i].GetInstanceID() + "|" + shift;
+                        if (!_CopyMaterials.TryGetValue(key, out Material made) || made == null)
+                        {
+                            made = Snapshot.ShiftedMaterial(shared[i], shift, null);
+                            _CopyMaterials[key] = made;
+                        }
+                        shared[i] = made;
+                    }
+                    renderer.sharedMaterials = shared;
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("[EffectColours] Could not colour " + copy.name + ": " + e);
+            }
         }
 
         //-------------------------------------------------------------- colours
@@ -428,8 +648,14 @@ namespace ModAPI
 
             private Material ShiftedCopy(Material original, ColourShift shift)
             {
+                return ShiftedMaterial(original, shift, _Made);
+            }
+
+            //A copy of a material with its colours and coloured textures turned; what is made goes into made (when given)
+            internal static Material ShiftedMaterial(Material original, ColourShift shift, List<UnityEngine.Object> made)
+            {
                 var copy = new Material(original) { name = original.name };
-                _Made.Add(copy);
+                made?.Add(copy);
                 foreach (string p in ColourProperties)
                 {
                     if (copy.HasProperty(p))
@@ -447,7 +673,7 @@ namespace ModAPI
                     Texture2D shifted = texture == null ? null : ShiftedTexture(texture, shift);
                     if (shifted != null)
                     {
-                        _Made.Add(shifted);
+                        made?.Add(shifted);
                         copy.SetTexture(p, shifted);
                     }
                 }
@@ -456,7 +682,7 @@ namespace ModAPI
 
             //A copy of a coloured texture with its colours turned (copied through the GPU: bundle textures can't be read directly).
             //Grey textures, coloured only by the particle colours, are left as they are (null).
-            private static Texture2D ShiftedTexture(Texture source, ColourShift shift)
+            internal static Texture2D ShiftedTexture(Texture source, ColourShift shift)
             {
                 int w = source.width, h = source.height;
                 if (w <= 0 || h <= 0 || w * h > 2048 * 2048)
@@ -620,6 +846,17 @@ namespace ModAPI
 
             public static ColourShift Neutral { get { return new ColourShift(0f, 1f, 1f); } }
 
+            //The change that turns colours already changed by from into colours changed by this
+            public ColourShift From(ColourShift from)
+            {
+                float hue = Hue - from.Hue;
+                if (hue > 180f) hue -= 360f;
+                if (hue < -180f) hue += 360f;
+                return new ColourShift(hue,
+                    from.Saturation > 0.01f ? Saturation / from.Saturation : Saturation,
+                    from.Brightness > 0.01f ? Brightness / from.Brightness : Brightness);
+            }
+
             public bool Same(ColourShift other)
             {
                 return Mathf.Abs(Hue - other.Hue) < 0.01f && Mathf.Abs(Saturation - other.Saturation) < 0.0001f && Mathf.Abs(Brightness - other.Brightness) < 0.0001f;
@@ -704,6 +941,23 @@ namespace ModAPI
                     default:
                         return m;
                 }
+            }
+        }
+    }
+
+    //Every effect copy the game shows, with who uses it: lines for one character (EffectColours.OnEffectCreated)
+    [HarmonyPatch(typeof(Heluo.Events.EffectEventHandler), "CreateEffect")]
+    internal static class EffectEventHandler_CreateEffect_Hook
+    {
+        private static void Postfix(GameObject __result, Heluo.Events.EffectEventArgs e)
+        {
+            try
+            {
+                EffectColours.Instance.OnEffectCreated(__result, e?.PrefabPath, e?.Source);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[EffectColours] " + ex);
             }
         }
     }

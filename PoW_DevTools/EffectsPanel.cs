@@ -39,7 +39,12 @@ namespace PoWDevTools
         private static List<string> _shown = new List<string>();
         private static float _nextRefresh;
         private static Vector2 _scroll;
-        private static string _selected, _loadedFor;
+        private static string _selected, _loadedFor, _drawnSelected;
+        //Who the colour is for: "" everyone, "player", or a character's model
+        private static int _forMode;
+        private static bool _needModel;
+        private static string _forModel = "";
+        private static string Target { get { return _forMode == 1 ? "player" : _forMode == 2 ? (_forModel ?? "").Trim() : ""; } }
         private static float _hue, _sat = 1f, _bright = 1f;
         private static float _applyAt = -1f;
         private static string _message = "";
@@ -92,21 +97,52 @@ namespace PoWDevTools
             if (_shown.Count == 0) GUILayout.Label(_recent.Length == 0 ? "No effects loaded yet." : "No effect matches.", _small);
             GUILayout.EndScrollView();
 
-            if (_selected == null)
+            //The effect drawn below is the one picked by the last layout (a click changes it for the next frame)
+            if (layout) _drawnSelected = _selected;
+            string sel = _drawnSelected;
+            if (sel == null)
             {
                 GUILayout.Label("Pick an effect.", _small);
-                if (_message.Length > 0) GUILayout.Label(_message, _small);
+                GUILayout.Label(_message, _small);
                 return;
             }
-            if (_loadedFor != _selected)
+            GUILayout.Label("<b>" + sel + "</b>", _small);
+            string last = (string)Call("LastCaster", sel);
+            using (new GUILayout.HorizontalScope())
             {
-                _loadedFor = _selected;
-                float[] v = (float[])Call("Get", _selected);
+                GUILayout.Label("For", GUILayout.Width(30f));
+                if (GUILayout.Toggle(_forMode == 0, "Everyone", GUI.skin.button)) _forMode = 0;
+                if (GUILayout.Toggle(_forMode == 1, "Player", GUI.skin.button)) _forMode = 1;
+                if (GUILayout.Toggle(_forMode == 2, "Character:", GUI.skin.button)) _forMode = 2;
+                _forModel = GUILayout.TextField(_forModel ?? "", GUILayout.Width(80f));
+            }
+            using (new GUILayout.HorizontalScope())
+            {
+                GUILayout.Label("Last used by: " + (last.Length > 0 ? last : "unknown (no caster, only \"Everyone\" works)"), _small);
+                if (last.Length > 0 && last != "player" && GUILayout.Button("Use", GUILayout.Width(50f)))
+                {
+                    _forMode = 2;
+                    _forModel = last;
+                }
+            }
+            //Decided on layout only: a click or a key changes the controls drawn on the next frame, not in the middle of this one
+            if (layout) _needModel = _forMode == 2 && Target.Length == 0;
+            if (_needModel)
+            {
+                GUILayout.Label("Type the character's model (e.g. in0104) or press Use.", _small);
+                GUILayout.Label(_message, _small);
+                return;
+            }
+
+            string key = sel + "|" + Target;
+            if (_loadedFor != key)
+            {
+                _loadedFor = key;
+                float[] v = (float[])Call("Get", sel, Target);
                 _hue = v[0]; _sat = v[1]; _bright = v[2];
                 _applyAt = -1f;
             }
 
-            GUILayout.Label("<b>" + _selected + "</b>", _small);
             float hue = Slider("Hue " + _hue.ToString("0"), _hue, -180f, 180f);
             float sat = Slider("Saturation " + _sat.ToString("0.00"), _sat, 0f, 2f);
             float bright = Slider("Brightness " + _bright.ToString("0.00"), _bright, 0f, 3f);
@@ -119,21 +155,21 @@ namespace PoWDevTools
             if (_applyAt > 0f && Time.realtimeSinceStartup >= _applyAt)
             {
                 _applyAt = -1f;
-                Apply();
+                Apply(sel);
             }
 
             using (new GUILayout.HorizontalScope())
             {
-                if (GUILayout.Button("Apply")) Apply();
+                if (GUILayout.Button("Apply")) Apply(sel);
                 if (GUILayout.Button("Reset"))
                 {
                     _hue = 0f; _sat = 1f; _bright = 1f;
-                    Apply();
+                    Apply(sel);
                 }
                 if (GUILayout.Button("Save to file"))
                 {
-                    Apply();
-                    _message = (string)Call("Save", _selected);
+                    Apply(sel);
+                    _message = (string)Call("Save", sel, Target);
                 }
                 if (GUILayout.Button("Reload files"))
                 {
@@ -142,8 +178,8 @@ namespace PoWDevTools
                     _message = "Effect colour files read again, " + changed + " loaded effect(s) changed.";
                 }
             }
-            GUILayout.Label("Changes show the next time the effect plays. Save writes ModResources\\EffectColours\\colours.txt (edit it by hand too: name = hue, saturation, brightness).", _small);
-            if (_message.Length > 0) GUILayout.Label(_message, _small);
+            GUILayout.Label("Changes show the next time the effect plays. Save writes ModResources\\EffectColours\\colours.txt (edit it by hand too: [player: | model:] name = hue, saturation, brightness). A line for one character wins over the line for everyone.", _small);
+            GUILayout.Label(_message, _small);
         }
 
         private static GUIStyle _rowStyle;
@@ -157,13 +193,14 @@ namespace PoWDevTools
             }
         }
 
-        private static void Apply()
+        private static void Apply(string sel)
         {
             try
             {
-                bool shown = (bool)Call("Set", _selected, _hue, _sat, _bright);
-                _message = shown ? _selected + ": " + _hue.ToString("0") + ", " + _sat.ToString("0.00") + ", " + _bright.ToString("0.00") + " (not saved yet)"
-                    : "Set, the game has not loaded " + _selected + " yet.";
+                bool shown = (bool)Call("Set", sel, Target, _hue, _sat, _bright);
+                string who = Target.Length == 0 ? "everyone" : Target;
+                _message = shown ? sel + " for " + who + ": " + _hue.ToString("0") + ", " + _sat.ToString("0.00") + ", " + _bright.ToString("0.00") + " (not saved yet)"
+                    : "Set, the game has not loaded " + sel + " yet.";
             }
             catch (Exception e)
             {
