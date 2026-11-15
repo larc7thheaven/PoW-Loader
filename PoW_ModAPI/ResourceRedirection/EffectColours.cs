@@ -44,6 +44,25 @@ namespace ModAPI
         private readonly List<string> _Order = new List<string>();
         //What a changed effect looked like, and what was made for it
         private readonly Dictionary<GameObject, Snapshot> _Snapshots = new Dictionary<GameObject, Snapshot>();
+        //Materials and textures of an earlier colour, still used by effects playing when the colour changed: destroyed a while later
+        private readonly List<KeyValuePair<float, UnityEngine.Object>> _Retired = new List<KeyValuePair<float, UnityEngine.Object>>();
+        private const float RetiredLifetime = 60f;
+
+        private void DestroyRetired(bool all)
+        {
+            float now = Time.realtimeSinceStartup;
+            for (int i = _Retired.Count - 1; i >= 0; i--)
+            {
+                if (all || now - _Retired[i].Key > RetiredLifetime)
+                {
+                    if (_Retired[i].Value != null)
+                    {
+                        UnityEngine.Object.Destroy(_Retired[i].Value);
+                    }
+                    _Retired.RemoveAt(i);
+                }
+            }
+        }
 
         private EffectColours()
         {
@@ -164,7 +183,7 @@ namespace ModAPI
             int changed = 0;
             foreach (var seen in _Seen.ToList())
             {
-                if (seen.Value == null)
+                if (seen.Value == null || !NeedsApply(seen.Key, seen.Value))
                 {
                     continue;
                 }
@@ -216,7 +235,15 @@ namespace ModAPI
             {
                 _Rules[effect] = shift;
             }
-            return _Seen.TryGetValue(effect, out GameObject prefab) && prefab != null && Apply(effect, prefab);
+            if (!_Seen.TryGetValue(effect, out GameObject prefab) || prefab == null)
+            {
+                return false;
+            }
+            if (NeedsApply(effect, prefab))
+            {
+                Apply(effect, prefab);
+            }
+            return true;
         }
 
         //-------------------------------------------------------------- loading
@@ -251,10 +278,25 @@ namespace ModAPI
             {
                 _Order.RemoveAt(0);
             }
-            if (_Rules.ContainsKey(name))
+            //The game loads the effect again every time it plays: it is only coloured again when its line changed
+            if (NeedsApply(name, prefab))
             {
                 Apply(name, prefab);
             }
+        }
+
+        //The effect's colours are not those of its line (or it has colours and no line any more)
+        private bool NeedsApply(string name, GameObject prefab)
+        {
+            bool hasRule = _Rules.TryGetValue(name, out ColourShift shift) && !shift.IsNeutral;
+            _Snapshots.TryGetValue(prefab, out Snapshot current);
+            return hasRule ? current == null || !current.Applied.Same(shift) : current != null;
+        }
+
+        /// <summary>Empties the list of loaded effects (Dev Tools: effects played after this are the ones listed).</summary>
+        public void ClearRecent()
+        {
+            _Order.Clear();
         }
 
         //-------------------------------------------------------------- colours
@@ -263,9 +305,10 @@ namespace ModAPI
         {
             try
             {
+                DestroyRetired(false);
                 if (_Snapshots.TryGetValue(prefab, out Snapshot old))
                 {
-                    old.Restore();
+                    old.Restore(_Retired);
                     _Snapshots.Remove(prefab);
                 }
                 if (!_Rules.TryGetValue(name, out ColourShift shift) || shift.IsNeutral)
@@ -274,6 +317,7 @@ namespace ModAPI
                 }
                 var snapshot = new Snapshot(prefab);
                 snapshot.Shift(shift);
+                snapshot.Applied = shift;
                 _Snapshots[prefab] = snapshot;
                 return true;
             }
@@ -294,6 +338,7 @@ namespace ModAPI
             private readonly List<KeyValuePair<LineRenderer, Gradient>> _Lines = new List<KeyValuePair<LineRenderer, Gradient>>();
             private readonly List<KeyValuePair<Light, Color>> _Lights = new List<KeyValuePair<Light, Color>>();
             private readonly List<UnityEngine.Object> _Made = new List<UnityEngine.Object>();
+            public ColourShift Applied;
 
             private static readonly string[] ColourProperties = { "_TintColor", "_Color", "_MainColor", "_BaseColor", "_EmissionColor", "_RimColor" };
             private static readonly string[] TextureProperties = { "_MainTex", "_BaseMap" };
@@ -468,7 +513,8 @@ namespace ModAPI
                 }
             }
 
-            public void Restore()
+            //The materials and textures made for this colour go to retired (effects still playing use them)
+            public void Restore(List<KeyValuePair<float, UnityEngine.Object>> retired)
             {
                 foreach (var p in _Particles)
                 {
@@ -505,11 +551,12 @@ namespace ModAPI
                         light.Key.color = light.Value;
                     }
                 }
+                float now = Time.realtimeSinceStartup;
                 foreach (UnityEngine.Object made in _Made)
                 {
                     if (made != null)
                     {
-                        UnityEngine.Object.Destroy(made);
+                        retired.Add(new KeyValuePair<float, UnityEngine.Object>(now, made));
                     }
                 }
                 _Made.Clear();
@@ -572,6 +619,11 @@ namespace ModAPI
             }
 
             public static ColourShift Neutral { get { return new ColourShift(0f, 1f, 1f); } }
+
+            public bool Same(ColourShift other)
+            {
+                return Mathf.Abs(Hue - other.Hue) < 0.01f && Mathf.Abs(Saturation - other.Saturation) < 0.0001f && Mathf.Abs(Brightness - other.Brightness) < 0.0001f;
+            }
 
             public bool IsNeutral { get { return Mathf.Abs(Hue) < 0.5f && Mathf.Abs(Saturation - 1f) < 0.005f && Mathf.Abs(Brightness - 1f) < 0.005f; } }
 

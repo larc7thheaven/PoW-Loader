@@ -65,11 +65,21 @@ namespace PoWDevTools
                 _shown = _recent.Where(n => s.Length == 0 || n.IndexOf(s, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
             }
 
-            GUILayout.Label("Effects the game loaded this session, the most recent first. Use a skill once to list its effects.", _small);
+            GUILayout.Label("Effects the game loaded, the most recent first. Clear list, then use a skill: the list holds only its effects.", _small);
             using (new GUILayout.HorizontalScope())
             {
                 GUILayout.Label("Search", GUILayout.Width(50f));
                 _search = GUILayout.TextField(_search ?? "");
+                //A fresh list: only the effects played after this are listed, e.g. those of the next skill used
+                if (GUILayout.Button("Clear list", GUILayout.Width(80f)))
+                {
+                    try { Call("ClearRecent"); } catch (Exception e) { Debug.LogError("[DevTools] Effects: " + e.Message); }
+                    _search = "";
+                    _selected = null;
+                    _loadedFor = null;
+                    _nextRefresh = 0f;
+                    _message = "List cleared: use a skill, its effects show up here.";
+                }
             }
 
             _scroll = GUILayout.BeginScrollView(_scroll, GUILayout.Height(230f));
@@ -85,6 +95,7 @@ namespace PoWDevTools
             if (_selected == null)
             {
                 GUILayout.Label("Pick an effect.", _small);
+                if (_message.Length > 0) GUILayout.Label(_message, _small);
                 return;
             }
             if (_loadedFor != _selected)
